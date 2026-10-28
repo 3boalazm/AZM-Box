@@ -149,7 +149,7 @@ export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActi
 
       <section>
         <h3>Full artwork sheet</h3>
-        <p className="muted">Upload one flattened artwork file — it starts fit to the whole dieline, then drag it on the canvas to reposition, or use the corner/edge handles to resize and rotate.</p>
+        <p className="muted">Upload one flattened artwork file, then resize it here with the slider or the +/− buttons. You can also drag it on the canvas to reposition and use its handles to resize or rotate.</p>
         <input
           ref={sheetInputRef}
           type="file"
@@ -158,6 +158,42 @@ export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActi
         />
         {side.sheetImage && (
           <>
+            <label className="slider-row artwork-zoom-control">
+              <span>
+                Image size <b>{Math.round((side.sheetWidth / layout.bounds.width) * 100)}%</b>
+              </span>
+              <input
+                aria-label="Artwork image size"
+                type="range"
+                min={10}
+                max={500}
+                step={1}
+                value={Math.max(10, Math.min(500, Math.round((side.sheetWidth / layout.bounds.width) * 100)))}
+                onChange={(e) => {
+                  const scale = Number(e.target.value) / 100;
+                  const ratio = side.sheetHeight / side.sheetWidth;
+                  onUpdateArtwork((a) =>
+                    updateSide(a, activeSide, (s) => ({
+                      ...s,
+                      sheetWidth: layout.bounds.width * scale,
+                      sheetHeight: layout.bounds.width * scale * ratio,
+                    })),
+                  );
+                }}
+              />
+            </label>
+            <div className="button-row">
+              <button className="secondary" aria-label="Zoom out artwork" title="Zoom out" onClick={() => {
+                const scale = Math.max(0.1, side.sheetWidth / layout.bounds.width - 0.1);
+                const ratio = side.sheetHeight / side.sheetWidth;
+                onUpdateArtwork((a) => updateSide(a, activeSide, (s) => ({ ...s, sheetWidth: layout.bounds.width * scale, sheetHeight: layout.bounds.width * scale * ratio })));
+              }}>− Smaller</button>
+              <button className="secondary" aria-label="Zoom in artwork" title="Zoom in" onClick={() => {
+                const scale = Math.min(5, side.sheetWidth / layout.bounds.width + 0.1);
+                const ratio = side.sheetHeight / side.sheetWidth;
+                onUpdateArtwork((a) => updateSide(a, activeSide, (s) => ({ ...s, sheetWidth: layout.bounds.width * scale, sheetHeight: layout.bounds.width * scale * ratio })));
+              }}>+ Larger</button>
+            </div>
             <div className="button-row">
               <button className="secondary" onClick={resetSheetToFit}>
                 Reset to fit sheet
