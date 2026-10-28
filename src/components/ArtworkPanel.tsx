@@ -149,7 +149,7 @@ export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActi
 
       <section>
         <h3>Full artwork sheet</h3>
-        <p className="muted">Upload one flattened artwork file, then resize it here with the slider or the +/− buttons. You can also drag it on the canvas to reposition and use its handles to resize or rotate.</p>
+        <p className="muted">Upload one flattened artwork file, then resize it here with the slider or the +/− buttons. On the canvas, select the image then drag any corner to stretch it freely; drag the body to reposition or the rotation handle to rotate.</p>
         <input
           ref={sheetInputRef}
           type="file"
