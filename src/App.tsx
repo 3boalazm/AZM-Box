@@ -26,6 +26,32 @@ export default function App() {
   const [lockTemplate, setLockTemplate] = useState(false);
 
   const sceneRef = useRef<THREE.Group | null>(null);
+  const foldAnimationRef = useRef<number | null>(null);
+
+  const animateFoldTo = (target: number) => {
+    if (foldAnimationRef.current !== null) cancelAnimationFrame(foldAnimationRef.current);
+    const from = foldAmount;
+    const startedAt = performance.now();
+    const duration = 650;
+    const step = (now: number) => {
+      const progress = Math.min(1, (now - startedAt) / duration);
+      const eased = 1 - (1 - progress) ** 3;
+      setFoldAmount(from + (target - from) * eased);
+      if (progress < 1) foldAnimationRef.current = requestAnimationFrame(step);
+      else foldAnimationRef.current = null;
+    };
+    foldAnimationRef.current = requestAnimationFrame(step);
+  };
+
+  const setFoldFromSlider = (value: number) => {
+    if (foldAnimationRef.current !== null) cancelAnimationFrame(foldAnimationRef.current);
+    foldAnimationRef.current = null;
+    setFoldAmount(value);
+  };
+
+  useEffect(() => () => {
+    if (foldAnimationRef.current !== null) cancelAnimationFrame(foldAnimationRef.current);
+  }, []);
 
   const root = useMemo(() => getBoxStyle(boxStyleId).build(dims), [boxStyleId, dims]);
   const layout = useMemo(() => computeFlatLayout(root), [root]);
@@ -269,10 +295,31 @@ export default function App() {
           ) : (
             <div className="stage-3d">
               <Fold3D root={root} foldAmount={foldAmount} texturesById={texturesById} onSceneReady={(g) => (sceneRef.current = g)} />
-              <div className="fold-slider">
-                <span>Flat</span>
-                <input type="range" min={0} max={1} step={0.01} value={foldAmount} onChange={(e) => setFoldAmount(Number(e.target.value))} />
-                <span>Closed</span>
+              <div className="fold-slider" aria-label="3D box folding controls">
+                <div className="fold-progress">
+                  <strong>Box folding</strong>
+                  <span>{Math.round(foldAmount * 100)}% folded</span>
+                </div>
+                <div className="fold-range">
+                  <span>Flat</span>
+                  <input
+                    aria-label="Fold box"
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={foldAmount}
+                    onChange={(e) => setFoldFromSlider(Number(e.target.value))}
+                  />
+                  <span>Closed</span>
+                </div>
+                <button
+                  type="button"
+                  className="fold-action"
+                  onClick={() => animateFoldTo(foldAmount >= 1 ? 0 : 1)}
+                >
+                  {foldAmount >= 1 ? "Unfold" : "Close box"}
+                </button>
                 <label className="dim-toggle" title="Prints each panel's width x height right on its face.">
                   <input type="checkbox" checked={showDimensions} onChange={(e) => setShowDimensions(e.target.checked)} />
                   Measurements
