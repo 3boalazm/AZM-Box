@@ -1,4 +1,5 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
+import ArtworkCropper from "./ArtworkCropper";
 import type { DielineLayout } from "../geometry/types";
 import type { ArtworkState, EditorLayer, SideArtwork } from "../artwork/types";
 import { readFileAsDataURL, loadImageSize } from "../lib/files";
@@ -26,7 +27,15 @@ export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActi
   const sheetInputRef = useRef<HTMLInputElement>(null);
   const panelInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
+  const [cropTarget, setCropTarget] = useState<{ kind: "sheet" } | { kind: "panel"; panelId: string } | { kind: "layer"; id: string } | null>(null);
   const side = artwork[activeSide];
+  const cropSource = cropTarget?.kind === "sheet"
+    ? side.sheetImage
+    : cropTarget?.kind === "panel"
+      ? side.panelImages[cropTarget.panelId]
+      : cropTarget?.kind === "layer"
+        ? side.layers.find((layer): layer is Extract<EditorLayer, { kind: "image" }> => layer.id === cropTarget.id && layer.kind === "image")?.src
+        : undefined;
   const selectedPanel = layout.panels.find((p) => p.id === selectedPanelId);
 
   const handleSheetUpload = async (file: File) => {
@@ -195,6 +204,9 @@ export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActi
               }}>+ Larger</button>
             </div>
             <div className="button-row">
+              <button className="secondary" onClick={() => setCropTarget({ kind: "sheet" })}>
+                Crop artwork
+              </button>
               <button className="secondary" onClick={resetSheetToFit}>
                 Reset to fit sheet
               </button>
@@ -221,9 +233,10 @@ export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActi
               />
             </label>
             {side.panelImages[selectedPanel.id] && (
-              <button className="secondary" onClick={removePanelImage}>
-                Remove panel image
-              </button>
+              <div className="button-row">
+                <button className="secondary" onClick={() => setCropTarget({ kind: "panel", panelId: selectedPanel.id })}>Crop panel image</button>
+                <button className="secondary" onClick={removePanelImage}>Remove panel image</button>
+              </div>
             )}
             <div className="button-row">
               <button onClick={addText}>+ Text</button>
@@ -251,7 +264,10 @@ export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActi
               {l.kind === "text" ? (
                 <input value={l.text} onChange={(e) => updateLayerText(l.id, e.target.value)} />
               ) : (
-                <span className="muted">Logo image</span>
+                <>
+                  <span className="muted">Logo image</span>
+                  <button type="button" className="secondary layer-crop-button" onClick={() => setCropTarget({ kind: "layer", id: l.id })}>Crop</button>
+                </>
               )}
               <button className="icon-btn" onClick={() => removeLayer(l.id)} title="Remove">
                 ×
@@ -260,6 +276,20 @@ export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActi
           ))}
         </ul>
       </section>
+      {cropTarget && cropSource && (
+        <ArtworkCropper
+          src={cropSource}
+          onCancel={() => setCropTarget(null)}
+          onApply={(croppedImage) => {
+            onUpdateArtwork((a) => updateSide(a, activeSide, (s) => {
+              if (cropTarget.kind === "sheet") return { ...s, sheetImage: croppedImage };
+              if (cropTarget.kind === "panel") return { ...s, panelImages: { ...s.panelImages, [cropTarget.panelId]: croppedImage } };
+              return { ...s, layers: s.layers.map((layer) => layer.id === cropTarget.id && layer.kind === "image" ? { ...layer, src: croppedImage } : layer) };
+            }));
+            setCropTarget(null);
+          }}
+        />
+      )}
     </aside>
   );
 }
