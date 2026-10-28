@@ -98,3 +98,32 @@ button:disabled { opacity:.5;cursor:not-allowed; }
  .help-popover { position:fixed;top:60px;right:10px;width:min(320px,calc(100vw - 20px)); }
 }
 @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important; } }
+
+/* Full-sheet artwork crop dialog */
+.crop-backdrop { position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:18px;background:rgba(5,8,13,.78);backdrop-filter:blur(5px); }
+.crop-dialog { width:min(760px,100%);max-height:min(92dvh,900px);overflow:auto;background:#171b24;border:1px solid #3a4352;border-radius:16px;padding:20px;box-shadow:0 24px 80px #000a;color:var(--text); }
+.crop-dialog-head { display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px; }
+.crop-dialog-head h2 { margin:0 0 4px;font-size:18px; }
+.crop-dialog-head p { margin:0;color:var(--text-muted);font-size:13px; }
+.crop-preview-wrap { min-height:160px;display:grid;place-items:center;overflow:hidden;border-radius:10px;background:#0d1016;padding:12px; }
+.crop-preview { position:relative;display:inline-block;max-width:100%;line-height:0; }
+.crop-preview img { display:block;width:auto;height:auto;max-width:min(68vw,700px);max-height:42vh;object-fit:contain; }
+.crop-dim { position:absolute;z-index:1;background:rgba(5,8,13,.62);pointer-events:none; }
+.crop-selection { position:absolute;z-index:2;border:2px solid #ffc14f;box-shadow:0 0 0 1px rgba(0,0,0,.5);pointer-events:none; }
+.crop-controls { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px;margin:16px 0; }
+.crop-controls label { display:grid;grid-template-columns:1fr auto;gap:4px 10px;color:var(--text-muted);font-size:12px; }
+.crop-controls b { color:var(--text);font-variant-numeric:tabular-nums; }
+.crop-controls input { grid-column:1/-1;width:100%;margin:0;accent-color:#f5a524; }
+.crop-actions { display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--border);padding-top:14px; }
+.crop-actions button { border:1px solid var(--border);border-radius:8px;padding:9px 14px; }
+.crop-apply { background:#f5a524;border-color:#f5a524!important;color:#20180d;font-weight:700; }
+.crop-apply:hover { background:#ffc15a; }
+.crop-error { color:#ff8989;font-size:12px; }
+@media(max-width:600px) {
+ .crop-backdrop { padding:8px; }
+ .crop-dialog { padding:15px;border-radius:13px; }
+ .crop-preview img { max-width:calc(100vw - 54px);max-height:34vh; }
+ .crop-controls { gap:9px 12px; }
+}
+.layer-list li .layer-crop-button { flex:0 0 auto;margin:0;padding:5px 8px;font-size:11px; }
+.layer-list li .muted { flex:1;min-width:0; }
