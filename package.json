@@ -12,6 +12,9 @@
     "preview": "vite preview",
     "electron:dev": "concurrently -k \"npm:dev\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
     "electron:build": "npm run build && electron-builder",
+    "electron:build:win": "npm run build && electron-builder --win nsis",
+    "electron:build:mac": "npm run build && electron-builder --mac dmg",
+    "electron:build:linux": "npm run build && electron-builder --linux AppImage",
     "start": "npm run electron:dev"
   },
   "build": {
