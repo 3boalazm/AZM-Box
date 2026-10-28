@@ -219,7 +219,7 @@ export default function App() {
                 <dt>Shift + rotate handle</dt>
                 <dd>Snap rotation to 45° steps</dd>
                 <dt>Drag corner handle</dt>
-                <dd>Resize keeping proportions</dd>
+                <dd>Drag to resize or stretch freely</dd>
                 <dt>Drag edge handle</dt>
                 <dd>Stretch one side only</dd>
                 <dt>Click a panel</dt>

@@ -686,14 +686,12 @@ export default function DielineEditor({
           );
         })}
 
-        {/* keepRatio makes the four DIAGONAL corner anchors scale proportionally
-            (so an image can't be distorted by a corner drag), while the four edge
-            anchors deliberately stretch a single axis. rotateEnabled adds the
-            rotation handle above the selection. */}
+        {/* Every resize handle, including the corners, can stretch freely by axis.
+            rotateEnabled adds the rotation handle above the selection. */}
         <Transformer
           ref={transformerRef}
           rotateEnabled
-          keepRatio
+          keepRatio={false}
           enabledAnchors={[
             "top-left",
             "top-center",
