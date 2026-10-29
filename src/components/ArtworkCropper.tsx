@@ -1,12 +1,13 @@
 import { useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
+import { moveCropRect, resizeCropRect } from "../artwork/cropGeometry";
+import type { CropDragMode } from "../artwork/cropGeometry";
 
 interface Props {
   src: string;
   onCancel: () => void;
   onApply: (croppedDataUrl: string) => void;
 }
-type DragMode = "move" | "nw" | "ne" | "sw" | "se";
 
 export default function ArtworkCropper({ src, onCancel, onApply }: Props) {
   const [left, setLeft] = useState(0);
@@ -15,9 +16,9 @@ export default function ArtworkCropper({ src, onCancel, onApply }: Props) {
   const [height, setHeight] = useState(100);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const dragRef = useRef<{ mode: DragMode; pointerId: number; startX: number; startY: number; left: number; top: number; width: number; height: number } | null>(null);
+  const dragRef = useRef<{ mode: CropDragMode; pointerId: number; startX: number; startY: number; left: number; top: number; width: number; height: number } | null>(null);
 
-  const beginDrag = (mode: DragMode, event: ReactPointerEvent<HTMLElement>) => {
+  const beginDrag = (mode: CropDragMode, event: ReactPointerEvent<HTMLElement>) => {
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -30,18 +31,9 @@ export default function ArtworkCropper({ src, onCancel, onApply }: Props) {
     if (!bounds.width || !bounds.height) return;
     const dx = ((event.clientX - drag.startX) / bounds.width) * 100;
     const dy = ((event.clientY - drag.startY) / bounds.height) * 100;
-    const minSize = 5;
-    if (drag.mode === "move") {
-      setLeft(Math.max(0, Math.min(100 - drag.width, drag.left + dx)));
-      setTop(Math.max(0, Math.min(100 - drag.height, drag.top + dy)));
-      return;
-    }
-    let x1 = drag.left, y1 = drag.top, x2 = drag.left + drag.width, y2 = drag.top + drag.height;
-    if (drag.mode.includes("w")) x1 = Math.max(0, Math.min(x2 - minSize, drag.left + dx));
-    if (drag.mode.includes("e")) x2 = Math.min(100, Math.max(x1 + minSize, drag.left + drag.width + dx));
-    if (drag.mode.includes("n")) y1 = Math.max(0, Math.min(y2 - minSize, drag.top + dy));
-    if (drag.mode.includes("s")) y2 = Math.min(100, Math.max(y1 + minSize, drag.top + drag.height + dy));
-    setLeft(x1); setTop(y1); setWidth(x2 - x1); setHeight(y2 - y1);
+    const start = { left: drag.left, top: drag.top, width: drag.width, height: drag.height };
+    const next = drag.mode === "move" ? moveCropRect(start, dx, dy) : resizeCropRect(start, drag.mode, dx, dy);
+    setLeft(next.left); setTop(next.top); setWidth(next.width); setHeight(next.height);
   };
   const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;

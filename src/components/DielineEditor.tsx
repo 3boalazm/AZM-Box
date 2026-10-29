@@ -642,7 +642,6 @@ export default function DielineEditor({
           const panel = panelById[layer.panelId];
           if (!panel) return null;
           const common = {
-            key: layer.id,
             layer,
             panel,
             boundsHeight: layout.bounds.height,
@@ -655,7 +654,7 @@ export default function DielineEditor({
               else shapeRefs.current.delete(layer.id);
             },
           };
-          return layer.kind === "text" ? <TextLayerNode {...common} /> : <ImageLayerNode {...common} />;
+          return layer.kind === "text" ? <TextLayerNode key={layer.id} {...common} /> : <ImageLayerNode key={layer.id} {...common} />;
         })}
 
         {layout.panels.map((p) => {

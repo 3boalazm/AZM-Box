@@ -27,7 +27,16 @@ const artwork: ArtworkState = {
   },
   inside: { ...emptySide("#f2ede3"), layers: [{ id: "t2", kind: "text", panelId: "left-2", x: 3, y: 4, text: "inside note", fontSize: 5, color: "#000000", rotation: 0 }] },
 };
-const dims = { length: 70, width: 24, height: 100, endFlapRight: 18, flaps: { front: 24, back: 18, left: 35, right: 35 } };
+const dims = {
+  length: 70,
+  width: 24,
+  height: 100,
+  endFlapRight: 18,
+  flaps: { front: 24, back: 18, left: 35, right: 35 },
+  flapEdges: { top: { front: 28 }, bottom: { back: 16 } },
+  flapWidths: { front: 68 },
+  flapShapes: { front: "tuck" as const },
+};
 
 let fails = 0;
 const check = (label: string, ok: boolean) => { console.log(`${ok ? "ok  " : "FAIL"} ${label}`); if (!ok) fails++; };
@@ -35,12 +44,12 @@ const check = (label: string, ok: boolean) => { console.log(`${ok ? "ok  " : "FA
 // 1. full round trip
 const loaded = parseProject(serializeProject("card-deck-lock", dims, artwork));
 check("box style survives", loaded.boxStyleId === "card-deck-lock");
-check("dims survive (incl. per-wall flaps)", JSON.stringify(loaded.dims) === JSON.stringify({ length: 70, width: 24, height: 100, endFlapRight: 18, flaps: { front: 24, back: 18, left: 35, right: 35 } }));
+check("dims survive (incl. asymmetric flap depths, widths, and shapes)", JSON.stringify(loaded.dims) === JSON.stringify(dims));
 check("artwork survives byte-identically", JSON.stringify(loaded.artwork) === JSON.stringify(artwork));
 check("embedded image data URL intact", loaded.artwork.outside.sheetImage === px && loaded.artwork.outside.panelImages["front-1"] === px);
 
 // 2. rejects garbage with readable errors
-for (const [label, bad] of [["random text", "not json at all"], ["foreign JSON", '{"hello":1}'], ["wrong version", '{"app":"packbox","version":99}'], ["unknown style", '{"app":"packbox","version":1,"boxStyleId":"nope","dims":{"length":1,"width":1,"height":1}}']] as const) {
+for (const [label, bad] of [["random text", "not json at all"], ["foreign JSON", '{"hello":1}'], ["wrong version", '{"app":"packbox","version":99}'], ["unknown style", '{"app":"packbox","version":1,"boxStyleId":"nope","dims":{"length":1,"width":1,"height":1}}'], ["oversized dimensions", '{"app":"packbox","version":1,"boxStyleId":"rsc","dims":{"length":6000,"width":20,"height":20}}'], ["negative flap depth", '{"app":"packbox","version":1,"boxStyleId":"rsc","dims":{"length":30,"width":20,"height":20,"flapEdges":{"top":{"front":-2}}}}']] as const) {
   let threw = false;
   try { parseProject(bad); } catch (e) { threw = e instanceof Error && e.message.length > 5; }
   check(`rejects ${label}`, threw);

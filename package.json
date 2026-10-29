@@ -15,7 +15,13 @@
     "electron:build:win": "npm run build && electron-builder --win nsis",
     "electron:build:mac": "npm run build && electron-builder --mac dmg",
     "electron:build:linux": "npm run build && electron-builder --linux AppImage",
-    "start": "npm run electron:dev"
+    "start": "npm run electron:dev",
+    "test": "npm run test:geometry && npm run test:fold && npm run test:artwork && npm run test:projects && npm run test:exports",
+    "test:geometry": "tsx scripts/smoke-test.ts && tsx scripts/verify-bbox.ts && tsx scripts/verify-flap-controls.ts && tsx scripts/verify-crop-geometry.ts",
+    "test:fold": "tsx scripts/verify-fold.ts tuck-end && tsx scripts/verify-fold.ts rsc && tsx scripts/verify-fold.ts card-deck && tsx scripts/verify-fold.ts card-deck-lock && tsx scripts/verify-fold.ts mailer && tsx scripts/verify-fold.ts hsc && tsx scripts/verify-fold.ts auto-lock-tray && tsx scripts/verify-fold.ts tuck-top-auto-bottom && tsx scripts/verify-fold.ts two-piece-base && tsx scripts/verify-fold.ts two-piece-lid",
+    "test:artwork": "tsx scripts/verify-texture.ts && tsx scripts/verify-artwork-anchor.ts",
+    "test:projects": "tsx scripts/verify-project.ts",
+    "test:exports": "tsx scripts/verify-a4.ts && tsx scripts/verify-duplex.ts"
   },
   "build": {
     "appId": "com.packbox.studio",
@@ -95,5 +101,8 @@
     "react",
     "threejs",
     "konva"
-  ]
+  ],
+  "overrides": {
+    "dompurify": "3.4.17"
+  }
 }

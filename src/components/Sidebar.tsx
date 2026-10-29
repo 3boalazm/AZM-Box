@@ -48,11 +48,14 @@ function controlIdForFace(face: FaceRole): string | null {
  * existing digits to type new ones: erasing "18" snapped straight back to the
  * minimum. The clamped number is committed on blur or on Enter instead.
  */
+const MAX_DIMENSION_MM = 5000;
+
 function Field({
   label,
   value,
   onChange,
   min = 1,
+  max = MAX_DIMENSION_MM,
   hint,
   flash,
 }: {
@@ -60,6 +63,7 @@ function Field({
   value: number;
   onChange: (v: number) => void;
   min?: number;
+  max?: number;
   hint?: string;
   /** When true this field plays the brief highlight animation. */
   flash?: boolean;
@@ -80,7 +84,7 @@ function Field({
       setDraft(String(value)); // nothing usable typed — put the old value back
       return;
     }
-    const clamped = Math.max(min, n);
+    const clamped = Math.min(max, Math.max(min, n));
     setDraft(String(clamped));
     if (clamped !== value) onChange(clamped);
   };
@@ -91,6 +95,7 @@ function Field({
       <input
         type="number"
         min={min}
+        max={max}
         value={draft}
         onFocus={() => setEditing(true)}
         onChange={(e) => {
