@@ -11,6 +11,7 @@ import { emptyArtwork } from "./artwork/types";
 import { serializeProject, parseProject, PROJECT_EXTENSION } from "./project/projectFile";
 import { downloadBlob } from "./lib/files";
 import { preserveSheetRegistration } from "./artwork/rootAnchoring";
+import Icon from "./components/Icon";
 
 const Fold3D = lazy(() => import("./components/Fold3D"));
 const DielineEditor = lazy(() => import("./components/DielineEditor"));
@@ -22,9 +23,10 @@ export default function App() {
   const [activeSide, setActiveSide] = useState<"outside" | "inside">("outside");
   const [selectedPanelId, setSelectedPanelId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"2d" | "3d">("2d");
-  const [foldAmount, setFoldAmount] = useState(0);
+  const [foldAmount, setFoldAmount] = useState(1);
   const [showDimensions, setShowDimensions] = useState(false);
   const [lockTemplate, setLockTemplate] = useState(false);
+  const [historyVersion, setHistoryVersion] = useState(0);
 
   const sceneRef = useRef<THREE.Group | null>(null);
   const sceneCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -135,6 +137,7 @@ export default function App() {
       lastEditAt.current = now;
     }
     prevSnap.current = { boxStyleId, dims, artwork };
+    setHistoryVersion((version) => version + 1);
   }, [boxStyleId, dims, artwork]);
 
   const applySnapshot = (snap: Snapshot) => {
@@ -150,6 +153,7 @@ export default function App() {
     const snap = undoStack.current.pop();
     if (!snap) return;
     redoStack.current.push(prevSnap.current);
+    setHistoryVersion((version) => version + 1);
     applySnapshot(snap);
   };
 
@@ -157,6 +161,7 @@ export default function App() {
     const snap = redoStack.current.pop();
     if (!snap) return;
     undoStack.current.push(prevSnap.current);
+    setHistoryVersion((version) => version + 1);
     applySnapshot(snap);
   };
 
@@ -191,7 +196,7 @@ export default function App() {
     setArtwork(emptyArtwork());
     setSelectedPanelId(null);
     setActiveSide("outside");
-    setFoldAmount(0);
+    setFoldAmount(1);
   };
 
   const saveProject = () => {
@@ -223,85 +228,43 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">📦 PackBox Studio</div>
-        <div className="project-bar">
-          <button type="button" onClick={newProject} title="Start a fresh project (undoable).">
-            New
-          </button>
-          <button type="button" onClick={saveProject} title="Saves the whole design — box style, dimensions, and all artwork/text/logos embedded — into one .pbox file.">
-            Save
-          </button>
-          <button type="button" onClick={() => openInputRef.current?.click()} title="Open a saved .pbox project.">
-            Open
-          </button>
-          <input
-            ref={openInputRef}
-            type="file"
-            accept={PROJECT_EXTENSION}
-            style={{ display: "none" }}
-            onChange={(e) => e.target.files?.[0] && openProject(e.target.files[0])}
-          />
+        <a className="brand-lockup" href="#workspace" aria-label="PackBox Studio home">
+          <span className="brand-symbol"><Icon name="box"/></span>
+          <span className="brand-name">PackBox <small>STUDIO</small></span>
+        </a>
+        <span className="header-rule" aria-hidden="true" />
+        <div className="project-context"><span>PACKAGING DESIGN</span><strong>{style.label}</strong></div>
+
+        <div className="header-spacer" />
+        <div className="history-actions" data-history-version={historyVersion} aria-label="Edit history">
+          <button type="button" className="header-icon-button" aria-label="Undo" title="Undo · Ctrl/⌘ Z" onClick={undo} disabled={!undoStack.current.length}><Icon name="undo"/></button>
+          <button type="button" className="header-icon-button" aria-label="Redo" title="Redo · Ctrl/⌘ Shift Z" onClick={redo} disabled={!redoStack.current.length}><Icon name="redo"/></button>
         </div>
-        <div className="tabs view-tabs">
-          <button className={activeTab === "2d" ? "active" : ""} onClick={() => setActiveTab("2d")}>
-            2D Dieline
-          </button>
-          <button className={activeTab === "3d" ? "active" : ""} onClick={() => setActiveTab("3d")}>
-            3D Preview
-          </button>
+        <span className="header-rule" aria-hidden="true" />
+        <div className="project-bar" aria-label="Project actions">
+          <button type="button" className="header-action" onClick={newProject} title="Start a fresh project (undoable)."><Icon name="new"/><span>New</span></button>
+          <button type="button" className="header-icon-button" onClick={() => openInputRef.current?.click()} title="Open a saved .pbox project." aria-label="Open project"><Icon name="open"/></button>
+          <button type="button" className="header-icon-button" onClick={saveProject} title="Save this project as a .pbox file." aria-label="Save project"><Icon name="save"/></button>
+          <input ref={openInputRef} type="file" accept={PROJECT_EXTENSION} className="visually-hidden" onChange={(e) => e.target.files?.[0] && openProject(e.target.files[0])}/>
+        </div>
+        <span className="header-rule" aria-hidden="true" />
+        <div className="tabs view-tabs" role="tablist" aria-label="Workspace view">
+          <button id="view-2d" role="tab" aria-controls="workspace-canvas" aria-selected={activeTab === "2d"} className={activeTab === "2d" ? "active" : ""} onClick={() => setActiveTab("2d")}><Icon name="dieline"/><span>Dieline</span></button>
+          <button id="view-3d" role="tab" aria-controls="workspace-canvas" aria-selected={activeTab === "3d"} className={activeTab === "3d" ? "active" : ""} onClick={() => setActiveTab("3d")}><Icon name="cube"/><span>3D Studio</span></button>
         </div>
         <div className="help-wrap">
-          <button type="button" className="help-btn" title="Keyboard & mouse shortcuts" onClick={() => setHelpOpen((v) => !v)}>
-            ?
-          </button>
-          {helpOpen && (
-            <div className="help-popover" onClick={(e) => e.stopPropagation()}>
-              <div className="help-head">
-                <strong>Shortcuts</strong>
-                <button type="button" className="icon-btn" onClick={() => setHelpOpen(false)}>
-                  ×
-                </button>
-              </div>
-              <h4>General</h4>
-              <dl>
-                <dt>⌘Z / Ctrl+Z</dt>
-                <dd>Undo</dd>
-                <dt>⇧⌘Z / Ctrl+Shift+Z</dt>
-                <dd>Redo</dd>
-              </dl>
-              <h4>2D editor</h4>
-              <dl>
-                <dt>Scroll</dt>
-                <dd>Zoom (keeps the point under the cursor in place)</dd>
-                <dt>Space + drag</dt>
-                <dd>Pan / move the canvas</dd>
-                <dt>Middle-mouse drag</dt>
-                <dd>Pan / move the canvas</dd>
-                <dt>Shift + rotate handle</dt>
-                <dd>Snap rotation to 45° steps</dd>
-                <dt>Drag corner handle</dt>
-                <dd>Drag to resize or stretch freely</dd>
-                <dt>Drag edge handle</dt>
-                <dd>Stretch one side only</dd>
-                <dt>Click a panel</dt>
-                <dd>Select it and flash its control in the sidebar</dd>
-              </dl>
-              <h4>3D preview</h4>
-              <dl>
-                <dt>Left-drag</dt>
-                <dd>Rotate around the box (unlimited)</dd>
-                <dt>Right-drag</dt>
-                <dd>Pan the view</dd>
-                <dt>Scroll</dt>
-                <dd>Zoom in / out</dd>
-              </dl>
-            </div>
-          )}
+          <button type="button" className="help-btn" aria-label="Keyboard and mouse shortcuts" title="Keyboard & mouse shortcuts" onClick={() => setHelpOpen((v) => !v)}><Icon name="help"/></button>
+          {helpOpen && <div className="help-popover" role="dialog" aria-label="Keyboard shortcuts" onClick={(e) => e.stopPropagation()}>
+            <div className="help-head"><strong>Keyboard shortcuts</strong><button type="button" className="icon-btn" aria-label="Close shortcuts" onClick={() => setHelpOpen(false)}><Icon name="close"/></button></div>
+            <h4>General</h4><dl><dt>⌘Z / Ctrl+Z</dt><dd>Undo</dd><dt>⇧⌘Z / Ctrl+Shift+Z</dt><dd>Redo</dd></dl>
+            <h4>2D editor</h4><dl><dt>Scroll</dt><dd>Zoom to cursor</dd><dt>Space + drag</dt><dd>Pan the canvas</dd><dt>Middle-drag</dt><dd>Pan the canvas</dd><dt>Shift + rotate</dt><dd>Snap to 45°</dd><dt>Drag a handle</dt><dd>Resize freely</dd><dt>Click a panel</dt><dd>Select it and reveal its settings</dd></dl>
+            <h4>3D studio</h4><dl><dt>Left-drag</dt><dd>Orbit around the box</dd><dt>Right-drag</dt><dd>Pan the view</dd><dt>Scroll</dt><dd>Zoom in / out</dd></dl>
+          </div>}
         </div>
-        <ExportBar layout={layout} artwork={artwork} title={style.label.replace(/\s+/g, "_")} sceneRef={sceneRef} sceneCanvasRef={sceneCanvasRef} activeTab={activeTab} />
+        <ExportBar layout={layout} artwork={artwork} title={style.label.replace(/\s+/g, "_")} sceneRef={sceneRef} sceneCanvasRef={sceneCanvasRef} activeTab={activeTab}/>
       </header>
 
-      <div className="body">
+      <div className="body" id="workspace">
         <Sidebar
           boxStyleId={boxStyleId}
           dims={dims}
@@ -311,7 +274,7 @@ export default function App() {
           highlightNonce={panelClickNonce}
         />
 
-        <main className="stage">
+        <main className="stage" id="workspace-canvas" role="tabpanel" tabIndex={0} aria-labelledby={activeTab === "2d" ? "view-2d" : "view-3d"}>
           {activeTab === "2d" ? (
             <div className="stage-scroll">
               <Suspense fallback={<div className="stage-loading">Loading 2D editor…</div>}>

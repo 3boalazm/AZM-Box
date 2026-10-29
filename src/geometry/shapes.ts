@@ -26,6 +26,12 @@ export function dustFlap(w: number, h: number): Point[] {
   ];
 }
 
+/** Dust flap with shallow shoulders for reverse-tuck retail carton closures. */
+export function smallDustFlap(w: number, h: number): Point[] {
+  const cut = Math.min(w * 0.1, h * 0.2);
+  return [[0, 0], [w, 0], [w, h - cut], [w - cut, h], [cut, h], [0, h - cut]];
+}
+
 /**
  * Straight tuck-end flap: trapezoid that narrows slightly toward the tip,
  * with a small locking slot cut into the leading edge.
@@ -45,6 +51,24 @@ export function tuckFlap(w: number, h: number): Point[] {
     [cx - slotW / 2, h],
     [inset, h],
   ];
+}
+
+/** Tuck flap with a generously rounded free edge (common on reverse-tuck cartons). */
+export function roundedTuckFlap(w: number, h: number): Point[] {
+  const radius = Math.max(0, Math.min(w * 0.1, h * 0.2, 18));
+  if (radius < 0.5) return rect(w, h);
+  const steps = 5;
+  const points: Point[] = [[0, 0], [w, 0], [w, h - radius]];
+  for (let i = 1; i <= steps; i++) {
+    const angle = (i / steps) * (Math.PI / 2);
+    points.push([w - radius + radius * Math.cos(angle), h - radius + radius * Math.sin(angle)]);
+  }
+  points.push([radius, h]);
+  for (let i = 1; i <= steps; i++) {
+    const angle = Math.PI / 2 + (i / steps) * (Math.PI / 2);
+    points.push([radius + radius * Math.cos(angle), h - radius + radius * Math.sin(angle)]);
+  }
+  return points;
 }
 
 /** Simple triangular/angled auto-lock style flap tab used on mailer boxes. */

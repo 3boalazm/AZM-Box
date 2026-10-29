@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { moveCropRect, resizeCropRect } from "../artwork/cropGeometry";
 import type { CropDragMode } from "../artwork/cropGeometry";
@@ -16,7 +16,42 @@ export default function ArtworkCropper({ src, onCancel, onApply }: Props) {
   const [height, setHeight] = useState(100);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const dialogRef = useRef<HTMLElementTagNameMap["section"]>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef(onCancel);
+  cancelRef.current = onCancel;
   const dragRef = useRef<{ mode: CropDragMode; pointerId: number; startX: number; startY: number; left: number; top: number; width: number; height: number } | null>(null);
+
+  useEffect(() => {
+    const returnFocusTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeButtonRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cancelRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialogRef.current?.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialogRef.current?.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      returnFocusTo?.focus();
+    };
+  }, []);
 
   const beginDrag = (mode: CropDragMode, event: ReactPointerEvent<HTMLElement>) => {
     event.preventDefault();
@@ -69,10 +104,10 @@ export default function ArtworkCropper({ src, onCancel, onApply }: Props) {
 
   return (
     <div className="crop-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onCancel()}>
-      <section className="crop-dialog" role="dialog" aria-modal="true" aria-labelledby="crop-title">
+      <section ref={dialogRef} className="crop-dialog" role="dialog" aria-modal="true" aria-labelledby="crop-title" aria-describedby="crop-description">
         <header className="crop-dialog-head">
-          <div><h2 id="crop-title">Crop artwork</h2><p>Drag the box to move it, or drag a corner to resize the crop.</p></div>
-          <button type="button" className="icon-btn" aria-label="Close crop tool" onClick={onCancel}>×</button>
+          <div><h2 id="crop-title">Crop artwork</h2><p id="crop-description">Drag the box to move it, or drag a corner to resize the crop.</p></div>
+          <button ref={closeButtonRef} type="button" className="icon-btn" aria-label="Close crop tool" onClick={onCancel}>×</button>
         </header>
         <div className="crop-preview-wrap">
           <div className="crop-preview" onPointerMove={moveCrop} onPointerUp={endDrag} onPointerCancel={endDrag}>

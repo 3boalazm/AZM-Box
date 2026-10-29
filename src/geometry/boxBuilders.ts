@@ -1,6 +1,6 @@
 import type { BoxDimensions, BoxStyleDefinition, BoxStyleId, FaceRole, FlapWall, HingeEdge, PanelNode } from "./types";
 import { FLAP_WALLS } from "./types";
-import { boundsOf, dustFlap, lockTab, rect, tuckFlap } from "./shapes";
+import { boundsOf, dustFlap, lockTab, rect, roundedTuckFlap, smallDustFlap, tuckFlap } from "./shapes";
 
 let uid = 0;
 function nextId(prefix: string) {
@@ -170,6 +170,49 @@ function buildTuckEndCarton(dims: BoxDimensions): PanelNode {
     addTuck(side2, "right", edge, "Right");
   }
 
+  return front;
+}
+
+// ---------------------------------------------------------------------------
+// 1b. Reverse Tuck End (RTE) carton
+//     Top tuck closes from the front wall; the bottom tuck closes from the back
+//     wall. Side dust flaps are present at both ends. This is the opposing-lid
+//     layout used by many cosmetic and retail folding cartons.
+// ---------------------------------------------------------------------------
+function buildReverseTuckEndCarton(dims: BoxDimensions): PanelNode {
+  const { width: W } = dims;
+  const tube = buildTube(dims);
+  const { front, side1, back, side2 } = tube;
+  const depths = resolveFlaps(dims, {
+    front: Math.max(10, W * 0.8),
+    back: Math.max(10, W * 0.8),
+    left: Math.max(10, W * 0.5),
+    right: Math.max(10, W * 0.5),
+  });
+
+  const add = (parent: PanelNode, wall: FlapWall, edge: "top" | "bottom", profile: "dust" | "rounded", phase: typeof PHASE_INNER | typeof PHASE_OUTER) => {
+    const h = depths[wall];
+    if (h <= 0) return;
+    const isDust = profile === "dust";
+    attach(parent, edge, 0, makePanel({
+      name: `${edge === "top" ? "Top" : "Bottom"} ${isDust ? "Dust" : "Tuck"} Flap (${wall[0].toUpperCase()}${wall.slice(1)})`,
+      face: `flap-${edge}-${wall}`,
+      w: parent.w,
+      h,
+      outline: isDust ? smallDustFlap(parent.w, h) : roundedTuckFlap(parent.w, h),
+      foldAngle: edge === "top" ? TOP_FOLD : BOTTOM_FOLD,
+      ...phase,
+    }));
+  };
+
+  // One lid at each end of the tube, on opposing walls; both side walls get
+  // small-corner dust flaps at top and bottom to support the tuck closures.
+  add(front, "front", "top", "rounded", PHASE_OUTER);
+  add(back, "back", "bottom", "rounded", PHASE_OUTER);
+  add(side1, "left", "top", "dust", PHASE_INNER);
+  add(side1, "left", "bottom", "dust", PHASE_INNER);
+  add(side2, "right", "top", "dust", PHASE_INNER);
+  add(side2, "right", "bottom", "dust", PHASE_INNER);
   return front;
 }
 
@@ -376,6 +419,13 @@ export const BOX_STYLES: BoxStyleDefinition[] = [
     description: "Classic retail folding carton with tuck flaps top & bottom.",
     defaultDimensions: { length: 100, width: 60, height: 150, endFlapRight: 15 },
     build: buildTuckEndCarton,
+  },
+  {
+    id: "reverse-tuck-end",
+    label: "Reverse Tuck End Carton",
+    description: "Retail folding carton with opposing top and bottom tuck flaps, shallow dust flaps, and softly rounded tuck edges.",
+    defaultDimensions: { length: 100, width: 60, height: 150, endFlapRight: 15 },
+    build: buildReverseTuckEndCarton,
   },
   {
     id: "rsc",

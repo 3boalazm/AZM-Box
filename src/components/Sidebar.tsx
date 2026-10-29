@@ -154,82 +154,83 @@ export default function Sidebar({ boxStyleId, dims, onChangeStyle, onChangeDims,
     onChangeDims({ ...dims, flapShapes: { ...dims.flapShapes, [wall]: value } });
 
   return (
-    <aside className="panel sidebar">
-      <h2>Box style</h2>
-      <select value={boxStyleId} onChange={(e) => onChangeStyle(e.target.value as BoxStyleId)}>
-        {BOX_STYLES.map((s) => (
-          <option key={s.id} value={s.id}>
-            {s.label}
-          </option>
-        ))}
-      </select>
-      <p className="muted">{style.description}</p>
+    <aside className="panel sidebar inspector-panel" aria-label="Box structure settings">
+      <header className="inspector-heading">
+        <div><span className="eyebrow">PARAMETRIC BOX</span><h2>Structure</h2></div>
+        <span className="unit-pill">mm</span>
+      </header>
 
-      <h2>Dimensions (mm)</h2>
-      <Field label="Length (L)" value={dims.length} onChange={(v) => onChangeDims({ ...dims, length: v })} flash={flashId === "length"} />
-      <Field label="Width (W)" value={dims.width} onChange={(v) => onChangeDims({ ...dims, width: v })} flash={flashId === "width"} />
-      <Field label="Height (H)" value={dims.height} onChange={(v) => onChangeDims({ ...dims, height: v })} flash={flashId === "height"} />
+      <details className="inspector-group" open>
+        <summary className="inspector-summary"><span>Template</span><span className="summary-meta">01</span></summary>
+        <div className="inspector-content">
+          <label className="control-label" htmlFor="box-style">Box style</label>
+          <select id="box-style" className="control-select" value={boxStyleId} onChange={(e) => onChangeStyle(e.target.value as BoxStyleId)}>
+            {BOX_STYLES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+          <p className="control-hint">{style.description}</p>
+        </div>
+      </details>
 
-      <h2>Flaps — add & customize</h2>
-      <p className="muted">Set each top and bottom flap independently. Use 0 to remove it, or Add to create one. Choose outline and width along the wall.</p>
-      <div className="flap-controls">
-        {FLAP_WALLS.map((wall) => {
-          const parent = wallPanel(wall);
-          const topDepth = flapDepth("top", wall);
-          const bottomDepth = flapDepth("bottom", wall);
-          const maxWidth = parent?.w ?? Math.max(dims.length, dims.width);
-          const addedDepth = Math.max(10, Math.round((parent?.w ?? dims.length) * 0.35));
-          return (
-            <section className="flap-control" key={wall}>
-              <h3>{WALL_LABELS[wall]}</h3>
-              <Field label="Top depth (mm)" value={topDepth} min={0} onChange={(v) => setFlapDepth("top", wall, v)} flash={flashId === `flap-${wall}`} />
-              <button type="button" className="secondary flap-toggle" onClick={() => setFlapDepth("top", wall, topDepth > 0 ? 0 : addedDepth)}>{topDepth > 0 ? "Remove top flap" : "+ Add top flap"}</button>
-              <Field label="Bottom depth (mm)" value={bottomDepth} min={0} onChange={(v) => setFlapDepth("bottom", wall, v)} flash={flashId === `flap-${wall}`} />
-              <button type="button" className="secondary flap-toggle" onClick={() => setFlapDepth("bottom", wall, bottomDepth > 0 ? 0 : addedDepth)}>{bottomDepth > 0 ? "Remove bottom flap" : "+ Add bottom flap"}</button>
-              <Field label="Flap width (mm)" value={flapWidth(wall)} min={1} onChange={(v) => setFlapWidth(wall, Math.min(maxWidth, v))} hint={`Centered along wall; maximum ${maxWidth} mm.`} />
-              <label className="field"><span>Shape</span>
-                <select value={dims.flapShapes?.[wall] ?? "default"} onChange={(event) => setFlapShape(wall, event.target.value as NonNullable<BoxDimensions["flapShapes"]>[FlapWall])}>
-                  <option value="default">Style default</option><option value="straight">Straight edge</option><option value="dust">Angled dust flap</option><option value="tuck">Tuck / locking flap</option><option value="lock">Lock tab</option>
-                </select>
-              </label>
-            </section>
-          );
-        })}
-      </div>
+      <details className="inspector-group" open>
+        <summary className="inspector-summary"><span>Overall dimensions</span><span className="summary-meta">02</span></summary>
+        <div className="inspector-content">
+          <div className="dimension-grid">
+            <Field label="Length · L" value={dims.length} onChange={(v) => onChangeDims({ ...dims, length: v })} flash={flashId === "length"} />
+            <Field label="Width · W" value={dims.width} onChange={(v) => onChangeDims({ ...dims, width: v })} flash={flashId === "width"} />
+            <Field label="Height · H" value={dims.height} onChange={(v) => onChangeDims({ ...dims, height: v })} flash={flashId === "height"} />
+          </div>
+          <span className="control-hint">Finished internal box size</span>
+        </div>
+      </details>
 
-      <h2>End flaps (mm)</h2>
-      <p className="muted">Tabs at the two ends of the unfolded strip. Set 0 for none.</p>
-      <Field
-        label="Right end (glue tab)"
-        value={dims.endFlapRight ?? 0}
-        min={0}
-        onChange={(v) => onChangeDims({ ...dims, endFlapRight: v })}
-        hint="The manufacturer's glue tab that bonds the tube closed."
-        flash={flashId === "endFlapRight"}
-      />
-      <Field
-        label="Left end"
-        value={dims.endFlapLeft ?? 0}
-        min={0}
-        onChange={(v) => onChangeDims({ ...dims, endFlapLeft: v })}
-        hint="Optional matching tab on the opposite end. 0 for none (the usual case)."
-      />
+      <details className="inspector-group" open>
+        <summary className="inspector-summary"><span>Flap geometry</span><span className="summary-meta">03</span></summary>
+        <div className="inspector-content flap-inspector">
+          <p className="control-hint">Set each edge independently. Use 0 mm to remove a flap.</p>
+          {FLAP_WALLS.map((wall) => {
+            const parent = wallPanel(wall);
+            const topDepth = flapDepth("top", wall);
+            const bottomDepth = flapDepth("bottom", wall);
+            const maxWidth = parent?.w ?? Math.max(dims.length, dims.width);
+            const addedDepth = Math.max(10, Math.round((parent?.w ?? dims.length) * 0.35));
+            return (
+              <details className="flap-wall" key={wall}>
+                <summary><span>{WALL_LABELS[wall]}</span><span className="flap-size-summary">{topDepth} / {bottomDepth} mm</span></summary>
+                <div className="flap-wall-content">
+                  <div className="flap-pair">
+                    <Field label="Top depth" value={topDepth} min={0} onChange={(v) => setFlapDepth("top", wall, v)} flash={flashId === `flap-${wall}`} />
+                    <button type="button" className="flap-remove" aria-label={topDepth > 0 ? `Remove top flap on ${WALL_LABELS[wall]}` : `Add top flap on ${WALL_LABELS[wall]}`} onClick={() => setFlapDepth("top", wall, topDepth > 0 ? 0 : addedDepth)}>{topDepth > 0 ? "Remove" : "+ Add"}</button>
+                  </div>
+                  <div className="flap-pair">
+                    <Field label="Bottom depth" value={bottomDepth} min={0} onChange={(v) => setFlapDepth("bottom", wall, v)} flash={flashId === `flap-${wall}`} />
+                    <button type="button" className="flap-remove" aria-label={bottomDepth > 0 ? `Remove bottom flap on ${WALL_LABELS[wall]}` : `Add bottom flap on ${WALL_LABELS[wall]}`} onClick={() => setFlapDepth("bottom", wall, bottomDepth > 0 ? 0 : addedDepth)}>{bottomDepth > 0 ? "Remove" : "+ Add"}</button>
+                  </div>
+                  <div className="flap-options">
+                    <Field label="Width" value={flapWidth(wall)} min={1} max={maxWidth} onChange={(v) => setFlapWidth(wall, Math.min(maxWidth, v))} hint={`Centered along wall; maximum ${maxWidth} mm.`} />
+                    <label className="field"><span>Profile</span>
+                      <select aria-label={`${WALL_LABELS[wall]} profile`} value={dims.flapShapes?.[wall] ?? "default"} onChange={(event) => setFlapShape(wall, event.target.value as NonNullable<BoxDimensions["flapShapes"]>[FlapWall])}>
+                        <option value="default">Default</option><option value="straight">Straight</option><option value="dust">Dust flap</option><option value="tuck">Tuck / lock</option><option value="lock">Lock tab</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              </details>
+            );
+          })}
+        </div>
+      </details>
 
-      {boxStyleId === "mailer" && (
-        <>
-          <h2>Lid</h2>
-          <Field
-            label="Lid tuck depth"
-            value={Math.round(dims.lidDepth ?? dims.height * 0.9)}
-            min={1}
-            onChange={(v) => onChangeDims({ ...dims, lidDepth: v })}
-          />
-        </>
-      )}
+      <details className="inspector-group">
+        <summary className="inspector-summary"><span>End closures</span><span className="summary-meta">04</span></summary>
+        <div className="inspector-content">
+          <p className="control-hint">Tabs at each end of the unfolded strip.</p>
+          <Field label="Right glue tab" value={dims.endFlapRight ?? 0} min={0} onChange={(v) => onChangeDims({ ...dims, endFlapRight: v })} hint="The manufacturer's glue tab that bonds the tube closed." flash={flashId === "endFlapRight"} />
+          <Field label="Left end tab" value={dims.endFlapLeft ?? 0} min={0} onChange={(v) => onChangeDims({ ...dims, endFlapLeft: v })} hint="Optional matching tab; set 0 mm for none." />
+          {boxStyleId === "mailer" && <Field label="Lid tuck depth" value={Math.round(dims.lidDepth ?? dims.height * 0.9)} min={1} onChange={(v) => onChangeDims({ ...dims, lidDepth: v })} />}
+        </div>
+      </details>
 
-      <button className="secondary" onClick={() => onChangeDims({ ...style.defaultDimensions })}>
-        Reset to defaults
-      </button>
+      <button className="reset-control" type="button" onClick={() => onChangeDims({ ...style.defaultDimensions })}>Reset dimensions to template</button>
     </aside>
   );
 }

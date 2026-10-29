@@ -21,6 +21,7 @@ const tiny = resizeCropRect({ left: 10, top: 10, width: 80, height: 80 }, "nw", 
 check("crop handles preserve a minimum crop size", tiny.width >= 5 && tiny.height >= 5 && tiny.left + tiny.width <= 100 && tiny.top + tiny.height <= 100);
 
 const css = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
-check("crop selection explicitly receives pointer events", /\.crop-selection,\.crop-handle\s*\{[^}]*pointer-events:auto/s.test(css));
+const receivesPointerEvents = (selector: "crop-selection" | "crop-handle") => [...css.matchAll(new RegExp(`\\.${selector}\\s*\\{([^}]*)\\}`, "g"))].some((match) => /pointer-events\s*:\s*auto/.test(match[1]));
+check("crop frame and all corner handles explicitly receive pointer events", receivesPointerEvents("crop-selection") && receivesPointerEvents("crop-handle"));
 console.log(failures === 0 ? "\nALL CROP INTERACTION CHECKS PASSED" : `\n${failures} FAILED`);
 process.exit(failures ? 1 : 0);
