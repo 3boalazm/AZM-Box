@@ -7,10 +7,13 @@ import ExportBar from "./components/ExportBar";
 import { BOX_STYLES, getBoxStyle } from "./geometry/boxBuilders";
 import { computeFlatLayout } from "./geometry/layout";
 import type { BoxDimensions, BoxStyleId } from "./geometry/types";
+import { transferDimensionsToTemplate } from "./geometry/templateDimensions";
 import { emptyArtwork } from "./artwork/types";
 import { serializeProject, parseProject, PROJECT_EXTENSION } from "./project/projectFile";
 import { downloadBlob } from "./lib/files";
 import { preserveSheetRegistration } from "./artwork/rootAnchoring";
+import { DEFAULT_SCENE_SETTINGS } from "./project/sceneSettings";
+import type { SceneSettings } from "./project/sceneSettings";
 import Icon from "./components/Icon";
 
 const Fold3D = lazy(() => import("./components/Fold3D"));
@@ -24,12 +27,14 @@ export default function App() {
   const [selectedPanelId, setSelectedPanelId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"2d" | "3d">("2d");
   const [foldAmount, setFoldAmount] = useState(1);
+  const [sceneSettings, setSceneSettings] = useState<SceneSettings>({ ...DEFAULT_SCENE_SETTINGS });
   const [showDimensions, setShowDimensions] = useState(false);
   const [lockTemplate, setLockTemplate] = useState(false);
   const [historyVersion, setHistoryVersion] = useState(0);
 
   const sceneRef = useRef<THREE.Group | null>(null);
   const sceneCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const transparentSceneExportRef = useRef<(() => Promise<Blob>) | null>(null);
   const skipNextArtworkAnchorAdjust = useRef(false);
   const foldAnimationRef = useRef<number | null>(null);
 
@@ -104,7 +109,10 @@ export default function App() {
   const handleChangeStyle = (id: BoxStyleId) => {
     skipNextArtworkAnchorAdjust.current = true;
     setBoxStyleId(id);
-    setDims({ ...getBoxStyle(id).defaultDimensions });
+    const defaults = getBoxStyle(id).defaultDimensions;
+    // Geometry dimensions are user intent and transfer safely between templates;
+    // flap and closure values are style-specific, so seed those from the new style.
+    setDims(transferDimensionsToTemplate(dims, defaults));
     setSelectedPanelId(null);
   };
 
@@ -197,10 +205,11 @@ export default function App() {
     setSelectedPanelId(null);
     setActiveSide("outside");
     setFoldAmount(1);
+    setSceneSettings({ ...DEFAULT_SCENE_SETTINGS });
   };
 
   const saveProject = () => {
-    const json = serializeProject(boxStyleId, dims, artwork);
+    const json = serializeProject(boxStyleId, dims, artwork, sceneSettings);
     const name = `${getBoxStyle(boxStyleId).label.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}${PROJECT_EXTENSION}`;
     downloadBlob(name, new Blob([json], { type: "application/json" }));
   };
@@ -213,6 +222,7 @@ export default function App() {
       setBoxStyleId(loaded.boxStyleId);
       setDims(loaded.dims);
       setArtwork(loaded.artwork);
+      setSceneSettings(loaded.scene);
       setSelectedPanelId(null);
       setActiveSide("outside");
     } catch (err) {
@@ -224,6 +234,35 @@ export default function App() {
   };
 
   const style = getBoxStyle(boxStyleId);
+
+  // Keep a recoverable local copy of the complete project. Large embedded artwork
+  // can exceed browser storage quotas, so autosave is best-effort and never blocks editing.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        window.localStorage.setItem("azm-box:autosave", serializeProject(boxStyleId, dims, artwork, sceneSettings));
+      } catch (error) {
+        console.warn("AZM-Box autosave could not be written (browser storage may be full).", error);
+      }
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [artwork, boxStyleId, dims, sceneSettings]);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem("azm-box:autosave");
+      if (!saved) return;
+      const recovered = parseProject(saved);
+      if (!window.confirm("Restore the most recent AZM-Box autosave?")) return;
+      skipNextArtworkAnchorAdjust.current = true;
+      setBoxStyleId(recovered.boxStyleId);
+      setDims(recovered.dims);
+      setArtwork(recovered.artwork);
+      setSceneSettings(recovered.scene);
+    } catch (error) {
+      console.warn("The saved AZM-Box autosave could not be restored.", error);
+    }
+  }, []);
 
   return (
     <div className="app">
@@ -261,7 +300,7 @@ export default function App() {
             <h4>3D studio</h4><dl><dt>Left-drag</dt><dd>Orbit around the box</dd><dt>Right-drag</dt><dd>Pan the view</dd><dt>Scroll</dt><dd>Zoom in / out</dd></dl>
           </div>}
         </div>
-        <ExportBar layout={layout} artwork={artwork} title={style.label.replace(/\s+/g, "_")} sceneRef={sceneRef} sceneCanvasRef={sceneCanvasRef} activeTab={activeTab}/>
+        <ExportBar layout={layout} artwork={artwork} title={style.label.replace(/\s+/g, "_")} sceneRef={sceneRef} sceneCanvasRef={sceneCanvasRef} transparentSceneExportRef={transparentSceneExportRef} activeTab={activeTab}/>
       </header>
 
       <div className="body" id="workspace">
@@ -295,7 +334,7 @@ export default function App() {
           ) : (
             <div className="stage-3d">
               <Suspense fallback={<div className="stage-loading">Loading 3D studio…</div>}>
-                <Fold3D root={root} dims={dims} layout={layout} artwork={artwork} showDimensions={showDimensions} foldAmount={foldAmount} onSceneReady={(g) => (sceneRef.current = g)} onCanvasReady={(canvas) => (sceneCanvasRef.current = canvas)} />
+                <Fold3D root={root} dims={dims} layout={layout} artwork={artwork} showDimensions={showDimensions} foldAmount={foldAmount} sceneSettings={sceneSettings} onChangeSceneSettings={setSceneSettings} onTransparentExportReady={(capture) => (transparentSceneExportRef.current = capture)} onSceneReady={(g) => (sceneRef.current = g)} onCanvasReady={(canvas) => (sceneCanvasRef.current = canvas)} />
               </Suspense>
               <div className="fold-slider" aria-label="3D box folding controls">
                 <div className="fold-progress">

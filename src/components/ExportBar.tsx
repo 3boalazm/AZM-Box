@@ -15,6 +15,7 @@ interface Props {
   title: string;
   sceneRef: React.MutableRefObject<THREE.Group | null>;
   sceneCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
+  transparentSceneExportRef: React.MutableRefObject<(() => Promise<Blob>) | null>;
   activeTab: "2d" | "3d";
 }
 
@@ -28,7 +29,7 @@ function forPrint(side: SideArtwork): SideArtwork {
   return { ...side, backgroundColor: "#ffffff" };
 }
 
-export default function ExportBar({ layout, artwork, title, sceneRef, sceneCanvasRef, activeTab }: Props) {
+export default function ExportBar({ layout, artwork, title, sceneRef, sceneCanvasRef, transparentSceneExportRef, activeTab }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [includeMeasurements, setIncludeMeasurements] = useState(false);
   const exportMenuRef = useRef<HTMLDetailsElement>(null);
@@ -120,6 +121,12 @@ export default function ExportBar({ layout, artwork, title, sceneRef, sceneCanva
     downloadBlob(`${title}_3d.${format}`, blob);
   });
 
+  const exportTransparentScene = () => run("transparent-png", async () => {
+    const capture = transparentSceneExportRef.current;
+    if (!capture) throw new Error("Open the 3D preview first so its renderer is ready.");
+    downloadBlob(`${title}_3d_transparent.png`, await capture());
+  });
+
   const exportScenePDF = () => run("scene-pdf", async () => {
     const { jsPDF } = await import("jspdf");
     const canvas = sceneCanvasRef.current;
@@ -150,7 +157,8 @@ export default function ExportBar({ layout, artwork, title, sceneRef, sceneCanva
           <label className="export-measurements"><input type="checkbox" checked={includeMeasurements} onChange={(e) => setIncludeMeasurements(e.target.checked)}/><span>Include measurement marks</span></label>
           <div className="export-group-label presentation-label">PRESENTATION</div>
           <div className="presentation-exports">
-            <button type="button" className="export-option" disabled={!!busy || activeTab !== "3d"} onClick={() => runFromMenu(() => exportSceneImage("png"))} title="Save the current 3D view as PNG"><span><b>Scene image · PNG</b><small>Transparent-free preview capture</small></span><Icon name="image"/></button>
+            <button type="button" className="export-option" disabled={!!busy || activeTab !== "3d"} onClick={() => runFromMenu(exportTransparentScene)} title="Save the current 3D view as a transparent PNG"><span><b>Scene image · PNG transparent</b><small>Transparent background · alpha channel</small></span><Icon name="image"/></button>
+            <button type="button" className="export-option" disabled={!!busy || activeTab !== "3d"} onClick={() => runFromMenu(() => exportSceneImage("png"))} title="Save the current 3D view as PNG"><span><b>Scene image · PNG</b><small>Current studio background included</small></span><Icon name="image"/></button>
             <button type="button" className="export-option" disabled={!!busy || activeTab !== "3d"} onClick={() => runFromMenu(() => exportSceneImage("jpg"))} title="Save the current 3D view as JPG"><span><b>Scene image · JPG</b><small>Compressed preview capture</small></span><Icon name="image"/></button>
             <button type="button" className="export-option" disabled={!!busy || activeTab !== "3d"} onClick={() => runFromMenu(exportScenePDF)} title="Save the current 3D view on landscape A4"><span><b>Scene PDF</b><small>Landscape A4 presentation</small></span><Icon name="download"/></button>
           </div>

@@ -8,6 +8,7 @@
 import { serializeProject, parseProject } from "../src/project/projectFile";
 import { emptySide } from "../src/artwork/types";
 import type { ArtworkState } from "../src/artwork/types";
+import { DEFAULT_SCENE_SETTINGS } from "../src/project/sceneSettings";
 
 const px = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
@@ -42,11 +43,15 @@ let fails = 0;
 const check = (label: string, ok: boolean) => { console.log(`${ok ? "ok  " : "FAIL"} ${label}`); if (!ok) fails++; };
 
 // 1. full round trip
-const loaded = parseProject(serializeProject("card-deck-lock", dims, artwork));
+const scene = { background: "#dce4ec", ambient: 1.35, keyLight: 0.55, preset: "front" as const };
+const loaded = parseProject(serializeProject("card-deck-lock", dims, artwork, scene));
 check("box style survives", loaded.boxStyleId === "card-deck-lock");
 check("dims survive (incl. asymmetric flap depths, widths, and shapes)", JSON.stringify(loaded.dims) === JSON.stringify(dims));
 check("artwork survives byte-identically", JSON.stringify(loaded.artwork) === JSON.stringify(artwork));
 check("embedded image data URL intact", loaded.artwork.outside.sheetImage === px && loaded.artwork.outside.panelImages["front-1"] === px);
+check("scene settings survive round trip", JSON.stringify(loaded.scene) === JSON.stringify(scene));
+const versionOne = parseProject(JSON.stringify({ app: "packbox", version: 1, boxStyleId: "rsc", dims: { length: 300, width: 200, height: 200 } }));
+check("version 1 project migrates with default scene", JSON.stringify(versionOne.scene) === JSON.stringify(DEFAULT_SCENE_SETTINGS));
 
 // 2. rejects garbage with readable errors
 for (const [label, bad] of [["random text", "not json at all"], ["foreign JSON", '{"hello":1}'], ["wrong version", '{"app":"packbox","version":99}'], ["unknown style", '{"app":"packbox","version":1,"boxStyleId":"nope","dims":{"length":1,"width":1,"height":1}}'], ["oversized dimensions", '{"app":"packbox","version":1,"boxStyleId":"rsc","dims":{"length":6000,"width":20,"height":20}}'], ["negative flap depth", '{"app":"packbox","version":1,"boxStyleId":"rsc","dims":{"length":30,"width":20,"height":20,"flapEdges":{"top":{"front":-2}}}}']] as const) {

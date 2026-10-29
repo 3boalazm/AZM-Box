@@ -6,6 +6,7 @@ import { rect } from "../geometry/shapes";
 import type { PanelTextures } from "../artwork/usePanelTextures";
 import { usePanelTextures } from "../artwork/usePanelTextures";
 import type { ArtworkState } from "../artwork/types";
+import type { SceneSettings, CameraPreset } from "../project/sceneSettings";
 import Icon from "./Icon";
 
 const OrbitControls = lazy(() => import("@react-three/drei").then(({ OrbitControls }) => ({ default: OrbitControls })));
@@ -123,7 +124,6 @@ function PanelGroup({
   );
 }
 
-type CameraPreset = "front" | "back" | "left" | "right" | "top" | "iso";
 type StudioControls = { current: { target: THREE.Vector3; update: () => void } | null };
 
 function CameraRig({ dims, preset, controlsRef }: { dims: BoxDimensions; preset: CameraPreset; controlsRef: StudioControls }) {
@@ -147,6 +147,30 @@ function CameraRig({ dims, preset, controlsRef }: { dims: BoxDimensions; preset:
   return null;
 }
 
+function TransparentCapture({ onReady }: { onReady?: (capture: () => Promise<Blob>) => void }) {
+  const { gl, scene, camera } = useThree();
+  useEffect(() => {
+    onReady?.(() => new Promise<Blob>((resolve, reject) => {
+      const background = scene.background;
+      const clearColor = gl.getClearColor(new THREE.Color()).clone();
+      const clearAlpha = gl.getClearAlpha();
+      try {
+        scene.background = null;
+        gl.setClearColor(0x000000, 0);
+        gl.render(scene, camera);
+        gl.domElement.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Could not capture a transparent 3D PNG.")), "image/png");
+      } catch (error) {
+        reject(error);
+      } finally {
+        scene.background = background;
+        gl.setClearColor(clearColor, clearAlpha);
+        gl.render(scene, camera);
+      }
+    }));
+  }, [camera, gl, onReady, scene]);
+  return null;
+}
+
 interface Fold3DProps {
   root: PanelNode;
   dims: BoxDimensions;
@@ -154,19 +178,21 @@ interface Fold3DProps {
   artwork: ArtworkState;
   showDimensions: boolean;
   foldAmount: number;
+  sceneSettings: SceneSettings;
+  onChangeSceneSettings: (settings: SceneSettings) => void;
+  onTransparentExportReady?: (capture: () => Promise<Blob>) => void;
   onSceneReady?: (group: THREE.Group) => void;
   onCanvasReady?: (canvas: HTMLCanvasElement) => void;
 }
 
-export default function Fold3D({ root, dims, layout, artwork, showDimensions, foldAmount, onSceneReady, onCanvasReady }: Fold3DProps) {
+export default function Fold3D({ root, dims, layout, artwork, showDimensions, foldAmount, sceneSettings, onChangeSceneSettings, onTransparentExportReady, onSceneReady, onCanvasReady }: Fold3DProps) {
   const texturesById = usePanelTextures(layout, artwork, 6, showDimensions);
   const groupRef = useRef<THREE.Group>(null);
   const controlsRef = useRef<StudioControls["current"]>(null);
   const [studioOpen, setStudioOpen] = useState(false);
-  const [background, setBackground] = useState("#e9e6df");
-  const [ambient, setAmbient] = useState(0.75);
-  const [keyLight, setKeyLight] = useState(0.9);
-  const [preset, setPreset] = useState<CameraPreset>("iso");
+  const [navigation, setNavigation] = useState<"orbit" | "pan" | "zoom">("orbit");
+  const { background, ambient, keyLight, preset } = sceneSettings;
+  const updateScene = (patch: Partial<SceneSettings>) => onChangeSceneSettings({ ...sceneSettings, ...patch });
   const presets: { id: CameraPreset; label: string }[] = [
     { id: "front", label: "Front" }, { id: "back", label: "Back" }, { id: "left", label: "Left" },
     { id: "right", label: "Right" }, { id: "top", label: "Top" }, { id: "iso", label: "Iso" },
@@ -179,7 +205,7 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
 
   return (
     <div className="fold3d-root">
-      <Canvas className="fold3d-canvas" dpr={[1, 2]} gl={{ preserveDrawingBuffer: true, antialias: true, alpha: false }} camera={{ position: [260, 220, 320], fov: 40, near: 1, far: 5000 }} onCreated={({ gl }) => onCanvasReady?.(gl.domElement)}>
+      <Canvas className="fold3d-canvas" dpr={[1, 2]} gl={{ preserveDrawingBuffer: true, antialias: true, alpha: true }} camera={{ position: [260, 220, 320], fov: 40, near: 1, far: 5000 }} onCreated={({ gl }) => onCanvasReady?.(gl.domElement)}>
         <color attach="background" args={[background]} />
         <ambientLight intensity={ambient} />
         <directionalLight position={[300, 400, 200]} intensity={keyLight} />
@@ -189,23 +215,29 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
           <PanelGroup node={root} parentW={root.w} parentH={root.h} foldAmount={foldAmount} texturesById={texturesById} />
         </group>
         <CameraRig dims={dims} preset={preset} controlsRef={controlsRef} />
+        <TransparentCapture onReady={onTransparentExportReady} />
         <Suspense fallback={null}>
-          <OrbitControls ref={controlsRef as never} makeDefault enableDamping dampingFactor={0.08} minDistance={5} maxDistance={20000} minPolarAngle={0} maxPolarAngle={Math.PI} minAzimuthAngle={-Infinity} maxAzimuthAngle={Infinity} />
+          <OrbitControls ref={controlsRef as never} makeDefault enableDamping dampingFactor={0.08} enableRotate={navigation === "orbit"} enablePan={navigation === "pan"} enableZoom={navigation === "zoom" || navigation === "orbit"} minDistance={5} maxDistance={20000} minPolarAngle={0} maxPolarAngle={Math.PI} minAzimuthAngle={-Infinity} maxAzimuthAngle={Infinity} />
         </Suspense>
       </Canvas>
+      <nav className="camera-toolbar" aria-label="3D camera navigation">
+        {(["orbit", "pan", "zoom"] as const).map((mode) => <button key={mode} type="button" aria-pressed={navigation === mode} className={navigation === mode ? "selected" : ""} title={`${mode[0].toUpperCase()}${mode.slice(1)} mode`} onClick={() => setNavigation(mode)}>{mode[0].toUpperCase() + mode.slice(1)}</button>)}
+        <span aria-hidden="true" />
+        <button type="button" onClick={() => { setNavigation("orbit"); updateScene({ preset: "iso" }); }} title="Fit and reset the camera">Fit</button>
+      </nav>
       <div className="studio-trigger-wrap">
         <button type="button" className={`studio-trigger${studioOpen ? " active" : ""}`} onClick={() => setStudioOpen((open) => !open)} aria-expanded={studioOpen} aria-controls="studio-settings"><Icon name="cube"/> Scene settings</button>
         {studioOpen && <section id="studio-settings" className="studio-panel" aria-label="3D studio settings">
           <header><strong>3D Studio</strong><button type="button" className="icon-btn" onClick={() => setStudioOpen(false)} aria-label="Close studio controls"><Icon name="close"/></button></header>
           <div className="studio-section"><span className="studio-label">Camera angle</span><div className="studio-angle-grid">
-            {presets.map((item) => <button key={item.id} type="button" className={preset === item.id ? "selected" : ""} onClick={() => setPreset(item.id)}>{item.label}</button>)}
+            {presets.map((item) => <button key={item.id} type="button" className={preset === item.id ? "selected" : ""} onClick={() => updateScene({ preset: item.id })}>{item.label}</button>)}
           </div></div>
           <div className="studio-section"><span className="studio-label">Background</span><div className="studio-backgrounds">
-            {["#e9e6df", "#f5f3ed", "#ffffff", "#dce4ec", "#23252b"].map((color) => <button key={color} type="button" aria-label={`Background ${color}`} title={color} className={background === color ? "selected" : ""} style={{ background: color }} onClick={() => setBackground(color)} />)}
-            <input type="color" aria-label="Custom background color" value={background} onChange={(event) => setBackground(event.target.value)} />
+            {["#e9e6df", "#f5f3ed", "#ffffff", "#dce4ec", "#23252b"].map((color) => <button key={color} type="button" aria-label={`Background ${color}`} title={color} className={background === color ? "selected" : ""} style={{ background: color }} onClick={() => updateScene({ background: color })} />)}
+            <input type="color" aria-label="Custom background color" value={background} onChange={(event) => updateScene({ background: event.target.value })} />
           </div></div>
-          <label className="studio-light-slider">Ambient light <b>{ambient.toFixed(1)}</b><input type="range" min="0.1" max="2" step="0.05" value={ambient} onChange={(event) => setAmbient(Number(event.target.value))} /></label>
-          <label className="studio-light-slider">Key light <b>{keyLight.toFixed(1)}</b><input type="range" min="0.1" max="2" step="0.05" value={keyLight} onChange={(event) => setKeyLight(Number(event.target.value))} /></label>
+          <label className="studio-light-slider">Ambient light <b>{ambient.toFixed(1)}</b><input type="range" min="0.1" max="2" step="0.05" value={ambient} onChange={(event) => updateScene({ ambient: Number(event.target.value) })} /></label>
+          <label className="studio-light-slider">Key light <b>{keyLight.toFixed(1)}</b><input type="range" min="0.1" max="2" step="0.05" value={keyLight} onChange={(event) => updateScene({ keyLight: Number(event.target.value) })} /></label>
           <p className="studio-hint">Drag to orbit; scroll to zoom.</p>
         </section>}
       </div>
