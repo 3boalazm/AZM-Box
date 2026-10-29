@@ -9,6 +9,7 @@ import { serializeProject, parseProject } from "../src/project/projectFile";
 import { emptySide } from "../src/artwork/types";
 import type { ArtworkState } from "../src/artwork/types";
 import { DEFAULT_SCENE_SETTINGS } from "../src/project/sceneSettings";
+import type { BoxDimensions, BoxStyleId } from "../src/geometry/types";
 
 const px = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
@@ -44,12 +45,19 @@ const check = (label: string, ok: boolean) => { console.log(`${ok ? "ok  " : "FA
 
 // 1. full round trip
 const scene = { background: "#dce4ec", ambient: 1.35, keyLight: 0.55, preset: "front" as const, cameraPose: { position: [101, 70, 90] as [number, number, number], target: [20, 32, -10] as [number, number, number], up: [0, 1, 0] as [number, number, number] } };
-const loaded = parseProject(serializeProject("card-deck-lock", dims, artwork, scene));
+const templateMemory: Partial<Record<BoxStyleId, BoxDimensions>> = {
+  "tuck-end": { ...dims, endFlapRight: 22 },
+  mailer: { length: 230, width: 170, height: 75, lidDepth: 68, flapEdges: { top: { back: 52 } } },
+};
+const loaded = parseProject(serializeProject("card-deck-lock", dims, artwork, scene, templateMemory));
 check("box style survives", loaded.boxStyleId === "card-deck-lock");
 check("dims survive (incl. asymmetric flap depths, widths, and shapes)", JSON.stringify(loaded.dims) === JSON.stringify(dims));
 check("artwork survives byte-identically", JSON.stringify(loaded.artwork) === JSON.stringify(artwork));
 check("embedded image data URL intact", loaded.artwork.outside.sheetImage === px && loaded.artwork.outside.panelImages["front-1"] === px);
 check("scene settings survive round trip", JSON.stringify(loaded.scene) === JSON.stringify(scene));
+check("per-template dimensions and custom closures survive", loaded.templateMemory["tuck-end"]?.endFlapRight === 22 && loaded.templateMemory["tuck-end"]?.flapEdges?.top?.front === 28 && loaded.templateMemory.mailer?.lidDepth === 68 && loaded.templateMemory.mailer?.flapEdges?.top?.back === 52);
+const versionTwo = parseProject(JSON.stringify({ app: "packbox", version: 2, boxStyleId: "rsc", dims: { length: 300, width: 200, height: 200 }, scene }));
+check("version 2 project migrates with its scene and empty template memory", JSON.stringify(versionTwo.scene) === JSON.stringify(scene) && Object.keys(versionTwo.templateMemory).length === 0);
 const versionOne = parseProject(JSON.stringify({ app: "packbox", version: 1, boxStyleId: "rsc", dims: { length: 300, width: 200, height: 200 } }));
 check("version 1 project migrates with default scene", JSON.stringify(versionOne.scene) === JSON.stringify(DEFAULT_SCENE_SETTINGS));
 

@@ -18,25 +18,33 @@ import type { SceneSettings } from "./sceneSettings";
  */
 export interface ProjectFile {
   app: "packbox";
-  version: 2;
+  version: 3;
   savedAt: string; // ISO timestamp, informational only
   boxStyleId: BoxStyleId;
   dims: BoxDimensions;
   artwork: ArtworkState;
   scene: SceneSettings;
+  templateMemory: Partial<Record<BoxStyleId, BoxDimensions>>;
 }
 
 export const PROJECT_EXTENSION = ".pbox";
 
-export function serializeProject(boxStyleId: BoxStyleId, dims: BoxDimensions, artwork: ArtworkState, scene: SceneSettings = DEFAULT_SCENE_SETTINGS): string {
+export function serializeProject(
+  boxStyleId: BoxStyleId,
+  dims: BoxDimensions,
+  artwork: ArtworkState,
+  scene: SceneSettings = DEFAULT_SCENE_SETTINGS,
+  templateMemory: Partial<Record<BoxStyleId, BoxDimensions>> = {},
+): string {
   const file: ProjectFile = {
     app: "packbox",
-    version: 2,
+    version: 3,
     savedAt: new Date().toISOString(),
     boxStyleId,
     dims,
     artwork,
     scene: normalizeSceneSettings(scene),
+    templateMemory,
   };
   return JSON.stringify(file);
 }
@@ -101,11 +109,44 @@ function normalizeSide(raw: unknown, fallbackColor: string): SideArtwork {
   };
 }
 
+function normalizeTemplateMemory(raw: unknown): Partial<Record<BoxStyleId, BoxDimensions>> {
+  const memory: Partial<Record<BoxStyleId, BoxDimensions>> = {};
+  if (raw === undefined || raw === null) return memory;
+  if (typeof raw !== "object" || Array.isArray(raw)) throw new Error("Saved template settings must be an object.");
+  for (const [id, value] of Object.entries(raw)) {
+    const style = BOX_STYLES.find((item) => item.id === id);
+    if (!style) continue;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error(`Saved settings for ${id} are invalid.`);
+    const dimensions = value as Partial<BoxDimensions>;
+    for (const key of ["length", "width", "height"] as const) validateDimension(dimensions[key], `Saved ${id} ${key}`, 1);
+    if (!isFiniteNumber(dimensions.length) || !isFiniteNumber(dimensions.width) || !isFiniteNumber(dimensions.height)) {
+      throw new Error(`Saved settings for ${id} are missing box dimensions.`);
+    }
+    validateDimension(dimensions.endFlapLeft, `Saved ${id} left end tab`);
+    validateDimension(dimensions.endFlapRight, `Saved ${id} right end tab`);
+    validateDimension(dimensions.lidDepth, `Saved ${id} lid depth`, 1);
+    validateDimensionMap(dimensions.flaps, `Saved ${id} flap depths`);
+    validateDimensionMap(dimensions.flapWidths, `Saved ${id} flap widths`, 1);
+    if (dimensions.flapEdges !== undefined) {
+      if (typeof dimensions.flapEdges !== "object" || dimensions.flapEdges === null || Array.isArray(dimensions.flapEdges)) throw new Error(`Saved ${id} flap edges are invalid.`);
+      for (const edge of ["top", "bottom"] as const) validateDimensionMap(dimensions.flapEdges[edge], `Saved ${id} ${edge} flap depths`);
+    }
+    if (dimensions.flapShapes !== undefined) {
+      const validShapes = new Set(["default", "straight", "dust", "tuck", "lock"]);
+      if (typeof dimensions.flapShapes !== "object" || dimensions.flapShapes === null || Array.isArray(dimensions.flapShapes) || Object.values(dimensions.flapShapes).some((shape) => !validShapes.has(String(shape)))) {
+        throw new Error(`Saved ${id} flap shapes are invalid.`);
+      }
+    }
+    memory[style.id] = { ...style.defaultDimensions, ...dimensions, length: dimensions.length, width: dimensions.width, height: dimensions.height };
+  }
+  return memory;
+}
+
 /**
  * Parses and validates a .pbox file's text. Throws with a human-readable
  * message on anything unusable; tolerates and repairs missing optional fields.
  */
-export function parseProject(text: string): { boxStyleId: BoxStyleId; dims: BoxDimensions; artwork: ArtworkState; scene: SceneSettings } {
+export function parseProject(text: string): { boxStyleId: BoxStyleId; dims: BoxDimensions; artwork: ArtworkState; scene: SceneSettings; templateMemory: Partial<Record<BoxStyleId, BoxDimensions>> } {
   let raw: unknown;
   try {
     raw = JSON.parse(text);
@@ -115,9 +156,9 @@ export function parseProject(text: string): { boxStyleId: BoxStyleId; dims: BoxD
   if (typeof raw !== "object" || raw === null || (raw as Record<string, unknown>).app !== "packbox") {
     throw new Error("This is not a PackBox project file.");
   }
-  const file = raw as Record<string, unknown> & { version?: number; boxStyleId?: BoxStyleId; dims?: BoxDimensions; artwork?: ArtworkState; scene?: SceneSettings };
-  if (file.version !== 1 && file.version !== 2) {
-    throw new Error(`Unsupported project version (${String(file.version)}). This app reads versions 1 and 2.`);
+  const file = raw as Record<string, unknown> & { version?: number; boxStyleId?: BoxStyleId; dims?: BoxDimensions; artwork?: ArtworkState; scene?: SceneSettings; templateMemory?: unknown };
+  if (file.version !== 1 && file.version !== 2 && file.version !== 3) {
+    throw new Error(`Unsupported project version (${String(file.version)}). This app reads versions 1, 2, and 3.`);
   }
 
   const style = BOX_STYLES.find((s) => s.id === file.boxStyleId);
@@ -161,5 +202,11 @@ export function parseProject(text: string): { boxStyleId: BoxStyleId; dims: BoxD
     inside: normalizeSide(a.inside, "#f2ede3"),
   };
 
-  return { boxStyleId: style.id, dims, artwork, scene: normalizeSceneSettings(file.version === 2 ? file.scene : DEFAULT_SCENE_SETTINGS) };
+  return {
+    boxStyleId: style.id,
+    dims,
+    artwork,
+    scene: normalizeSceneSettings(file.version >= 2 ? file.scene : DEFAULT_SCENE_SETTINGS),
+    templateMemory: normalizeTemplateMemory(file.version >= 3 ? file.templateMemory : undefined),
+  };
 }
