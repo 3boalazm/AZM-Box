@@ -3,12 +3,15 @@ import type * as THREE from "three";
 import "./App.css";
 import Sidebar from "./components/Sidebar";
 import ArtworkPanel from "./components/ArtworkPanel";
+import StudioTree from "./components/StudioTree";
+import StudioInspector from "./components/StudioInspector";
 import ExportBar from "./components/ExportBar";
 import { BOX_STYLES, getBoxStyle } from "./geometry/boxBuilders";
 import { computeFlatLayout } from "./geometry/layout";
 import type { BoxDimensions, BoxStyleId } from "./geometry/types";
 import { transferDimensionsToTemplate } from "./geometry/templateDimensions";
 import { emptyArtwork } from "./artwork/types";
+import { visibleArtwork } from "./artwork/layerVisibility";
 import { serializeProject, parseProject, PROJECT_EXTENSION } from "./project/projectFile";
 import { downloadBlob } from "./lib/files";
 import { preserveSheetRegistration } from "./artwork/rootAnchoring";
@@ -29,6 +32,8 @@ export default function App() {
   const [artwork, setArtwork] = useState(emptyArtwork());
   const [activeSide, setActiveSide] = useState<"outside" | "inside">("outside");
   const [selectedPanelId, setSelectedPanelId] = useState<string | null>(null);
+  const [selectedArtworkLayerId, setSelectedArtworkLayerId] = useState<string | null>(null);
+  const [selectedStudioItem, setSelectedStudioItem] = useState("scene:model");
   const [activeTab, setActiveTab] = useState<"2d" | "3d">("2d");
   const [foldAmount, setFoldAmount] = useState(1);
   const [sceneSettings, setSceneSettings] = useState<SceneSettings>({ ...DEFAULT_SCENE_SETTINGS });
@@ -70,6 +75,7 @@ export default function App() {
 
   const root = useMemo(() => getBoxStyle(boxStyleId).build(dims), [boxStyleId, dims]);
   const layout = useMemo(() => computeFlatLayout(root), [root]);
+  const displayedArtwork = useMemo(() => visibleArtwork(artwork, sceneSettings.hiddenLayerIds, sceneSettings.showOutsideArtwork, sceneSettings.showInsideArtwork), [artwork, sceneSettings.hiddenLayerIds, sceneSettings.showOutsideArtwork, sceneSettings.showInsideArtwork]);
 
   // Keep the uploaded full-sheet artwork registered to the root/body panel when
   // dieline bounds change (for example, when a flap gets deeper). The layout
@@ -108,7 +114,14 @@ export default function App() {
 
   const handleSelectPanel = (id: string | null) => {
     setSelectedPanelId(id);
-    if (id) setPanelClickNonce((n) => n + 1);
+    if (id) {
+      setPanelClickNonce((n) => n + 1);
+      setSelectedStudioItem(`model-panel:${id}`);
+    }
+  };
+  const handleStudioSelectPanel = (id: string | null) => {
+    handleSelectPanel(id);
+    if (id) setSelectedStudioItem(`model-panel:${id}`);
   };
 
   const handleChangeStyle = (id: BoxStyleId) => {
@@ -340,14 +353,25 @@ export default function App() {
       </header>
 
       <div className="body" id="workspace">
-        <Sidebar
+        {activeTab === "3d" && <div className="studio-left-column">
+          <StudioTree artwork={artwork} layout={layout} activeSide={activeSide} settings={sceneSettings} onChangeSettings={setSceneSettings} onChangeArtwork={setArtwork} onSelectSide={setActiveSide} onSelectLayer={setSelectedArtworkLayerId} onSelectPanel={handleStudioSelectPanel} selectedLayerId={selectedArtworkLayerId} selectedPanelId={selectedPanelId} selectedItem={selectedStudioItem} onSelectItem={setSelectedStudioItem}/>
+          <Sidebar
+            boxStyleId={boxStyleId}
+          dims={dims}
+          onChangeStyle={handleChangeStyle}
+          onChangeDims={handleChangeDimensions}
+          highlightFace={selectedPanelFace}
+          highlightNonce={panelClickNonce}
+          />
+        </div>}
+        {activeTab === "2d" && <Sidebar
           boxStyleId={boxStyleId}
           dims={dims}
           onChangeStyle={handleChangeStyle}
           onChangeDims={handleChangeDimensions}
           highlightFace={selectedPanelFace}
           highlightNonce={panelClickNonce}
-        />
+        />}
 
         <main className="stage" id="workspace-canvas" role="tabpanel" tabIndex={0} aria-labelledby={activeTab === "2d" ? "view-2d" : "view-3d"}>
           {activeTab === "2d" ? (
@@ -355,13 +379,19 @@ export default function App() {
               <Suspense fallback={<div className="stage-loading">Loading 2D editor…</div>}>
               <DielineEditor
                 layout={layout}
-                side={artwork[activeSide]}
+                side={displayedArtwork[activeSide]}
                 pxPerMm={2.2}
                 selectedPanelId={selectedPanelId}
                 onSelectPanel={handleSelectPanel}
                 onUpdateSide={(updater) => setArtwork((a) => ({ ...a, [activeSide]: updater(a[activeSide]) }))}
-                showDimensions={showDimensions}
+                showDimensions={showDimensions && sceneSettings.showProductionDimensions}
                 onToggleDimensions={setShowDimensions}
+                showCutLines={sceneSettings.showCutLines}
+                showFoldLines={sceneSettings.showFoldLines}
+                selectedProductionLayer={selectedStudioItem === "production:showCutLines" ? "cut" : selectedStudioItem === "production:showFoldLines" ? "fold" : null}
+                selectedArtworkLayerId={selectedArtworkLayerId}
+                onSelectArtworkLayer={setSelectedArtworkLayerId}
+                lockedLayerIds={sceneSettings.lockedLayerIds}
                 lockTemplate={lockTemplate}
                 onToggleLockTemplate={setLockTemplate}
               />
@@ -370,7 +400,7 @@ export default function App() {
           ) : (
             <div className="stage-3d">
               <Suspense fallback={<div className="stage-loading">Loading 3D studio…</div>}>
-                <Fold3D root={root} dims={dims} layout={layout} artwork={artwork} showDimensions={showDimensions} foldAmount={foldAmount} sceneSettings={sceneSettings} onChangeSceneSettings={setSceneSettings} onTransparentExportReady={(capture) => (transparentSceneExportRef.current = capture)} onSceneReady={(g) => (sceneRef.current = g)} onCanvasReady={(canvas) => (sceneCanvasRef.current = canvas)} />
+                <Fold3D root={root} dims={dims} layout={layout} artwork={displayedArtwork} showDimensions={showDimensions} foldAmount={foldAmount} sceneSettings={sceneSettings} onChangeSceneSettings={setSceneSettings} onTransparentExportReady={(capture) => (transparentSceneExportRef.current = capture)} onSceneReady={(g) => (sceneRef.current = g)} onCanvasReady={(canvas) => (sceneCanvasRef.current = canvas)} onSelectPanel={handleStudioSelectPanel} />
               </Suspense>
               <div className="fold-slider" aria-label="3D box folding controls">
                 <div className="fold-progress">
@@ -406,14 +436,14 @@ export default function App() {
           )}
         </main>
 
-        <ArtworkPanel
+        {activeTab === "2d" ? <ArtworkPanel
           layout={layout}
           artwork={artwork}
           activeSide={activeSide}
           onChangeActiveSide={setActiveSide}
           selectedPanelId={selectedPanelId}
           onUpdateArtwork={setArtwork}
-        />
+        /> : <StudioInspector settings={sceneSettings} onChange={setSceneSettings} selectedItem={selectedStudioItem} layout={layout} selectedPanelId={selectedPanelId}/> }
       </div>
     </div>
   );

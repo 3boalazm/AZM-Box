@@ -6,6 +6,7 @@
  * pre-`sheetRotation`-era file loads with defaults (forward compatibility).
  */
 import { serializeProject, parseProject } from "../src/project/projectFile";
+import { normalizeSceneSettings } from "../src/project/sceneSettings";
 import { emptySide } from "../src/artwork/types";
 import type { ArtworkState } from "../src/artwork/types";
 import { DEFAULT_SCENE_SETTINGS } from "../src/project/sceneSettings";
@@ -54,10 +55,10 @@ check("box style survives", loaded.boxStyleId === "card-deck-lock");
 check("dims survive (incl. asymmetric flap depths, widths, and shapes)", JSON.stringify(loaded.dims) === JSON.stringify(dims));
 check("artwork survives byte-identically", JSON.stringify(loaded.artwork) === JSON.stringify(artwork));
 check("embedded image data URL intact", loaded.artwork.outside.sheetImage === px && loaded.artwork.outside.panelImages["front-1"] === px);
-check("scene settings survive round trip", JSON.stringify(loaded.scene) === JSON.stringify(scene));
+check("scene settings survive round trip", JSON.stringify(loaded.scene) === JSON.stringify(normalizeSceneSettings(scene)));
 check("per-template dimensions and custom closures survive", loaded.templateMemory["tuck-end"]?.endFlapRight === 22 && loaded.templateMemory["tuck-end"]?.flapEdges?.top?.front === 28 && loaded.templateMemory.mailer?.lidDepth === 68 && loaded.templateMemory.mailer?.flapEdges?.top?.back === 52);
 const versionTwo = parseProject(JSON.stringify({ app: "packbox", version: 2, boxStyleId: "rsc", dims: { length: 300, width: 200, height: 200 }, scene }));
-check("version 2 project migrates with its scene and empty template memory", JSON.stringify(versionTwo.scene) === JSON.stringify(scene) && Object.keys(versionTwo.templateMemory).length === 0);
+check("version 2 project migrates with its scene and empty template memory", JSON.stringify(versionTwo.scene) === JSON.stringify(normalizeSceneSettings(scene)) && Object.keys(versionTwo.templateMemory).length === 0);
 const versionOne = parseProject(JSON.stringify({ app: "packbox", version: 1, boxStyleId: "rsc", dims: { length: 300, width: 200, height: 200 } }));
 check("version 1 project migrates with default scene", JSON.stringify(versionOne.scene) === JSON.stringify(DEFAULT_SCENE_SETTINGS));
 
