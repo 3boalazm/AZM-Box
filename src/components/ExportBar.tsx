@@ -107,8 +107,16 @@ export default function ExportBar({ layout, artwork, title, sceneRef, sceneCanva
         alert("Open the 3D tab first so the model is ready to export.");
         return;
       }
-      const blob = await exportGLB(sceneRef.current);
-      downloadBlob(`${title}.glb`, blob);
+      // Scene visibility is a preview preference; always export the packaging model.
+      const model = sceneRef.current;
+      const previousVisibility = model.visible;
+      model.visible = true;
+      try {
+        const blob = await exportGLB(model);
+        downloadBlob(`${title}.glb`, blob);
+      } finally {
+        model.visible = previousVisibility;
+      }
     });
 
   const exportSceneImage = (format: "png" | "jpg") => run(format, async () => {

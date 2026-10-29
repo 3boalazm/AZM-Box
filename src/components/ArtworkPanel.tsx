@@ -12,6 +12,7 @@ interface Props {
   onChangeActiveSide: (s: "outside" | "inside") => void;
   selectedPanelId: string | null;
   onUpdateArtwork: (updater: (a: ArtworkState) => ArtworkState) => void;
+  lockedLayerIds?: string[];
 }
 
 function updateSide(artwork: ArtworkState, side: "outside" | "inside", fn: (s: SideArtwork) => SideArtwork): ArtworkState {
@@ -24,7 +25,7 @@ function newId(prefix: string) {
   return `${prefix}-${Date.now()}-${layerCounter}`;
 }
 
-export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActiveSide, selectedPanelId, onUpdateArtwork }: Props) {
+export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActiveSide, selectedPanelId, onUpdateArtwork, lockedLayerIds = [] }: Props) {
   const sheetInputRef = useRef<HTMLInputElement>(null);
   const panelInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -38,8 +39,11 @@ export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActi
         ? side.layers.find((layer): layer is Extract<EditorLayer, { kind: "image" }> => layer.id === cropTarget.id && layer.kind === "image")?.src
         : undefined;
   const selectedPanel = layout.panels.find((p) => p.id === selectedPanelId);
+  const sheetLocked = lockedLayerIds.includes(`sheet:${activeSide}`);
+  const panelImageLocked = selectedPanel ? lockedLayerIds.includes(`panel:${activeSide}:${selectedPanel.id}`) : false;
 
   const handleSheetUpload = async (file: File) => {
+    if (sheetLocked) return;
     const dataUrl = await readFileAsDataURL(file);
     // Fit the whole sheet bounds by default (matches the old auto-scale-to-template
     // behavior) — the user can then drag/resize/rotate it freely on the canvas.
@@ -47,6 +51,7 @@ export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActi
       updateSide(a, activeSide, (s) => ({
         ...s,
         sheetImage: dataUrl,
+        sheetImageName: file.name.slice(0, 200),
         sheetOffset: { x: 0, y: 0 },
         sheetWidth: layout.bounds.width,
         sheetHeight: layout.bounds.height,
@@ -69,8 +74,9 @@ export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActi
 
   const handlePanelUpload = async (file: File) => {
     if (!selectedPanel) return;
+    if (lockedLayerIds.includes(`panel:${activeSide}:${selectedPanel.id}`)) return;
     const dataUrl = await readFileAsDataURL(file);
-    onUpdateArtwork((a) => updateSide(a, activeSide, (s) => ({ ...s, panelImages: { ...s.panelImages, [selectedPanel.id]: dataUrl } })));
+    onUpdateArtwork((a) => updateSide(a, activeSide, (s) => ({ ...s, panelImages: { ...s.panelImages, [selectedPanel.id]: dataUrl }, panelImageNames: { ...s.panelImageNames, [selectedPanel.id]: file.name.slice(0, 200) } })));
   };
 
   const handleLogoUpload = async (file: File) => {
@@ -125,24 +131,25 @@ export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActi
   };
 
   const removeLayer = (id: string) => {
+    if (lockedLayerIds.includes(`layer:${activeSide}:${id}`) || lockedLayerIds.includes(id)) return;
     onUpdateArtwork((a) => updateSide(a, activeSide, (s) => ({ ...s, layers: s.layers.filter((l) => l.id !== id) })));
   };
 
   const updateLayerText = (id: string, text: string) => {
+    if (lockedLayerIds.includes(`layer:${activeSide}:${id}`) || lockedLayerIds.includes(id)) return;
     onUpdateArtwork((a) =>
       updateSide(a, activeSide, (s) => ({ ...s, layers: s.layers.map((l) => (l.id === id && l.kind === "text" ? { ...l, text } : l)) })),
     );
   };
 
   const removePanelImage = () => {
-    if (!selectedPanel) return;
-    onUpdateArtwork((a) =>
-      updateSide(a, activeSide, (s) => {
-        const next = { ...s.panelImages };
-        delete next[selectedPanel.id];
-        return { ...s, panelImages: next };
-      }),
-    );
+    if (!selectedPanel || panelImageLocked) return;
+    onUpdateArtwork((a) => updateSide(a, activeSide, (s) => {
+      const next = { ...s.panelImages };
+      const names = { ...s.panelImageNames };
+      delete next[selectedPanel.id]; delete names[selectedPanel.id];
+      return { ...s, panelImages: next, panelImageNames: names };
+    }));
   };
 
   return (
@@ -163,22 +170,22 @@ export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActi
           <p className="control-hint">Place one print-ready image across the dieline. Resize and reposition it directly on the canvas.</p>
           <input ref={sheetInputRef} className="visually-hidden" type="file" accept="image/*" onChange={(e) => e.target.files?.[0] && handleSheetUpload(e.target.files[0])} />
           {!side.sheetImage ? (
-            <button type="button" className="upload-action" onClick={() => sheetInputRef.current?.click()}><Icon name="image"/><span><b>Place artwork</b><small>Choose an image file</small></span><Icon name="plus"/></button>
+            <button type="button" className="upload-action" disabled={sheetLocked} onClick={() => sheetInputRef.current?.click()}><Icon name="image"/><span><b>Place artwork</b><small>Choose an image file</small></span><Icon name="plus"/></button>
           ) : (
             <>
-              <label className="slider-row artwork-zoom-control"><span>Scale <b>{Math.round((side.sheetWidth / layout.bounds.width) * 100)}%</b></span><input aria-label="Artwork image size" type="range" min={10} max={500} step={1} value={Math.max(10, Math.min(500, Math.round((side.sheetWidth / layout.bounds.width) * 100)))} onChange={(e) => {
+              <label className="slider-row artwork-zoom-control"><span>Scale <b>{Math.round((side.sheetWidth / layout.bounds.width) * 100)}%</b></span><input aria-label="Artwork image size" disabled={sheetLocked} type="range" min={10} max={500} step={1} value={Math.max(10, Math.min(500, Math.round((side.sheetWidth / layout.bounds.width) * 100)))} onChange={(e) => {
                 const scale = Number(e.target.value) / 100; const ratio = side.sheetHeight / side.sheetWidth;
                 onUpdateArtwork((a) => updateSide(a, activeSide, (s) => ({ ...s, sheetWidth: layout.bounds.width * scale, sheetHeight: layout.bounds.width * scale * ratio })));
               }}/></label>
               <div className="compact-actions">
-                <button type="button" className="subtle-action" aria-label="Zoom out artwork" onClick={() => { const scale = Math.max(0.1, side.sheetWidth / layout.bounds.width - 0.1); const ratio = side.sheetHeight / side.sheetWidth; onUpdateArtwork((a) => updateSide(a, activeSide, (s) => ({ ...s, sheetWidth: layout.bounds.width * scale, sheetHeight: layout.bounds.width * scale * ratio }))); }}>−</button>
-                <button type="button" className="subtle-action" aria-label="Zoom in artwork" onClick={() => { const scale = Math.min(5, side.sheetWidth / layout.bounds.width + 0.1); const ratio = side.sheetHeight / side.sheetWidth; onUpdateArtwork((a) => updateSide(a, activeSide, (s) => ({ ...s, sheetWidth: layout.bounds.width * scale, sheetHeight: layout.bounds.width * scale * ratio }))); }}>+</button>
-                <button type="button" className="subtle-action" onClick={() => setCropTarget({ kind: "sheet" })}><Icon name="crop"/> Crop</button>
-                <button type="button" className="subtle-action" onClick={resetSheetToFit}>Fit to sheet</button>
+                <button type="button" className="subtle-action" disabled={sheetLocked} aria-label="Zoom out artwork" onClick={() => { const scale = Math.max(0.1, side.sheetWidth / layout.bounds.width - 0.1); const ratio = side.sheetHeight / side.sheetWidth; onUpdateArtwork((a) => updateSide(a, activeSide, (s) => ({ ...s, sheetWidth: layout.bounds.width * scale, sheetHeight: layout.bounds.width * scale * ratio }))); }}>−</button>
+                <button type="button" className="subtle-action" disabled={sheetLocked} aria-label="Zoom in artwork" onClick={() => { const scale = Math.min(5, side.sheetWidth / layout.bounds.width + 0.1); const ratio = side.sheetHeight / side.sheetWidth; onUpdateArtwork((a) => updateSide(a, activeSide, (s) => ({ ...s, sheetWidth: layout.bounds.width * scale, sheetHeight: layout.bounds.width * scale * ratio }))); }}>+</button>
+                <button type="button" className="subtle-action" disabled={sheetLocked} onClick={() => setCropTarget({ kind: "sheet" })}><Icon name="crop"/> Crop</button>
+                <button type="button" className="subtle-action" disabled={sheetLocked} onClick={resetSheetToFit}>Fit to sheet</button>
               </div>
               <div className="compact-actions secondary-actions">
-                <button type="button" className="text-action" onClick={() => sheetInputRef.current?.click()}>Replace image</button>
-                <button type="button" className="text-action danger-action" onClick={() => onUpdateArtwork((a) => updateSide(a, activeSide, (s) => ({ ...s, sheetImage: undefined })))}>Remove</button>
+                <button type="button" className="text-action" disabled={sheetLocked} onClick={() => sheetInputRef.current?.click()}>Replace image</button>
+                <button type="button" className="text-action danger-action" disabled={sheetLocked} onClick={() => onUpdateArtwork((a) => updateSide(a, activeSide, (s) => ({ ...s, sheetImage: undefined, sheetImageName: undefined })))}>Remove</button>
               </div>
             </>
           )}
@@ -192,12 +199,12 @@ export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActi
             <div className="panel-target"><span className="target-dot"/><span>{selectedPanel.name}</span><span className="target-size">{selectedPanel.w.toFixed(0)} × {selectedPanel.h.toFixed(0)} mm</span></div>
             <input ref={panelInputRef} className="visually-hidden" type="file" accept="image/*" onChange={(e) => e.target.files?.[0] && handlePanelUpload(e.target.files[0])}/>
             <div className="compact-actions panel-actions">
-              <button type="button" className="subtle-action" onClick={() => panelInputRef.current?.click()}><Icon name="image"/> Place image</button>
+              <button type="button" className="subtle-action" disabled={panelImageLocked} onClick={() => panelInputRef.current?.click()}><Icon name="image"/> Place image</button>
               <button type="button" className="subtle-action" onClick={addText}><Icon name="plus"/> Add text</button>
               <input ref={logoInputRef} className="visually-hidden" type="file" accept="image/*" onChange={(e) => e.target.files?.[0] && handleLogoUpload(e.target.files[0])}/>
               <button type="button" className="subtle-action" onClick={() => logoInputRef.current?.click()}><Icon name="plus"/> Add logo</button>
             </div>
-            {side.panelImages[selectedPanel.id] && <button type="button" className="text-action danger-action" onClick={removePanelImage}>Remove panel image</button>}
+            {side.panelImages[selectedPanel.id] && <button type="button" className="text-action danger-action" disabled={panelImageLocked} onClick={removePanelImage}>Remove panel image</button>}
           </>}
         </div>
       </details>
@@ -208,9 +215,9 @@ export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActi
           {side.layers.length === 0 ? <p className="empty-note">Text and logos added to the selected face appear here.</p> : <ul className="layer-list">
             {side.layers.map((layer) => <li key={layer.id}>
               <span className="layer-kind"><Icon name={layer.kind === "text" ? "layers" : "image"}/></span>
-              {layer.kind === "text" ? <input aria-label="Layer text" value={layer.text} onChange={(e) => updateLayerText(layer.id, e.target.value)}/> : <span className="layer-name">Image layer</span>}
-              {layer.kind === "image" && <button type="button" className="subtle-action layer-crop-button" aria-label="Crop image layer" onClick={() => setCropTarget({ kind: "layer", id: layer.id })}><Icon name="crop"/></button>}
-              <button type="button" className="icon-btn layer-remove" aria-label={`Remove ${layer.kind} layer`} onClick={() => removeLayer(layer.id)}><Icon name="trash"/></button>
+              {layer.kind === "text" ? <input aria-label="Layer text" disabled={lockedLayerIds.includes(`layer:${activeSide}:${layer.id}`) || lockedLayerIds.includes(layer.id)} value={layer.text} onChange={(e) => updateLayerText(layer.id, e.target.value)}/> : <span className="layer-name">{layer.name || "Image layer"}</span>}
+              {layer.kind === "image" && <button type="button" className="subtle-action layer-crop-button" aria-label="Crop image layer" disabled={lockedLayerIds.includes(`layer:${activeSide}:${layer.id}`) || lockedLayerIds.includes(layer.id)} onClick={() => setCropTarget({ kind: "layer", id: layer.id })}><Icon name="crop"/></button>}
+              <button type="button" className="icon-btn layer-remove" aria-label={`Remove ${layer.kind} layer`} disabled={lockedLayerIds.includes(`layer:${activeSide}:${layer.id}`) || lockedLayerIds.includes(layer.id)} onClick={() => removeLayer(layer.id)}><Icon name="trash"/></button>
             </li>)}
           </ul>}
         </div>

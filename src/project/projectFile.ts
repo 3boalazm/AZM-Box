@@ -90,6 +90,7 @@ function normalizeSide(raw: unknown, fallbackColor: string): SideArtwork {
   return {
     ...base,
     sheetImage: typeof r.sheetImage === "string" ? r.sheetImage : undefined,
+    sheetImageName: typeof r.sheetImageName === "string" ? r.sheetImageName.slice(0, 200) : undefined,
     sheetOffset:
       typeof r.sheetOffset === "object" &&
       r.sheetOffset !== null &&
@@ -104,6 +105,9 @@ function normalizeSide(raw: unknown, fallbackColor: string): SideArtwork {
       typeof r.panelImages === "object" && r.panelImages !== null
         ? Object.fromEntries(Object.entries(r.panelImages as Record<string, unknown>).filter(([, v]) => typeof v === "string")) as Record<string, string>
         : {},
+    panelImageNames: typeof r.panelImageNames === "object" && r.panelImageNames !== null
+      ? Object.fromEntries(Object.entries(r.panelImageNames as Record<string, unknown>).filter(([, v]) => typeof v === "string").map(([key, name]) => [key, String(name).slice(0, 200)]))
+      : {},
     layers,
     backgroundColor: typeof r.backgroundColor === "string" ? r.backgroundColor : base.backgroundColor,
   };

@@ -37,7 +37,6 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"2d" | "3d">("2d");
   const [foldAmount, setFoldAmount] = useState(1);
   const [sceneSettings, setSceneSettings] = useState<SceneSettings>({ ...DEFAULT_SCENE_SETTINGS });
-  const [showDimensions, setShowDimensions] = useState(false);
   const [lockTemplate, setLockTemplate] = useState(false);
   const [historyVersion, setHistoryVersion] = useState(0);
 
@@ -123,6 +122,10 @@ export default function App() {
     handleSelectPanel(id);
     if (id) setSelectedStudioItem(`model-panel:${id}`);
   };
+  const handleSelectArtworkLayer = (id: string | null) => {
+    setSelectedArtworkLayerId(id);
+    setSelectedStudioItem(id === "__sheet__" ? `sheet:${activeSide}` : id ? `artwork:${activeSide}:${id}` : `side:${activeSide}`);
+  };
 
   const handleChangeStyle = (id: BoxStyleId) => {
     if (id === boxStyleId) return;
@@ -153,22 +156,24 @@ export default function App() {
   };
 
   // ---- Undo / redo ---------------------------------------------------------
-  // Snapshots of the whole DESIGN state (style + dims + artwork). Snapshots hold
+  // Snapshots include design and presentation state. Camera changes are already debounced;
+  // the 400ms burst grouping coalesces a continuous orbit or slider drag into one step.
+  // Snapshots hold
   // object references, not copies — all updates here are immutable, so old
   // references stay valid and pushing one costs nothing even with megabytes of
   // embedded artwork. Rapid bursts (slider drags fire many changes per second)
   // collapse into ONE undo step: only the first change of a burst pushes the
   // pre-burst state; anything within 400ms of the previous change is skipped.
-  type Snapshot = { boxStyleId: BoxStyleId; dims: BoxDimensions; artwork: ReturnType<typeof emptyArtwork> };
+  type Snapshot = { boxStyleId: BoxStyleId; dims: BoxDimensions; artwork: ReturnType<typeof emptyArtwork>; sceneSettings: SceneSettings };
   const undoStack = useRef<Snapshot[]>([]);
   const redoStack = useRef<Snapshot[]>([]);
   const restoring = useRef(false);
   const lastEditAt = useRef(0);
-  const prevSnap = useRef<Snapshot>({ boxStyleId, dims, artwork });
+  const prevSnap = useRef<Snapshot>({ boxStyleId, dims, artwork, sceneSettings });
 
   useEffect(() => {
     const prev = prevSnap.current;
-    if (prev.boxStyleId === boxStyleId && prev.dims === dims && prev.artwork === artwork) return;
+    if (prev.boxStyleId === boxStyleId && prev.dims === dims && prev.artwork === artwork && prev.sceneSettings === sceneSettings) return;
     if (restoring.current) {
       restoring.current = false;
     } else {
@@ -180,9 +185,9 @@ export default function App() {
       }
       lastEditAt.current = now;
     }
-    prevSnap.current = { boxStyleId, dims, artwork };
+    prevSnap.current = { boxStyleId, dims, artwork, sceneSettings };
     setHistoryVersion((version) => version + 1);
-  }, [boxStyleId, dims, artwork]);
+  }, [boxStyleId, dims, artwork, sceneSettings]);
 
   const applySnapshot = (snap: Snapshot) => {
     restoring.current = true;
@@ -191,7 +196,7 @@ export default function App() {
     setDims(snap.dims);
     setTemplateMemory((current) => ({ ...current, [snap.boxStyleId]: { ...snap.dims } }));
     setArtwork(snap.artwork);
-    setSceneSettings((current) => ({ ...current, cameraPose: null }));
+    setSceneSettings(snap.sceneSettings);
     setSelectedPanelId(null);
   };
 
@@ -354,7 +359,7 @@ export default function App() {
 
       <div className="body" id="workspace">
         {activeTab === "3d" && <div className="studio-left-column">
-          <StudioTree artwork={artwork} layout={layout} activeSide={activeSide} settings={sceneSettings} onChangeSettings={setSceneSettings} onChangeArtwork={setArtwork} onSelectSide={setActiveSide} onSelectLayer={setSelectedArtworkLayerId} onSelectPanel={handleStudioSelectPanel} selectedLayerId={selectedArtworkLayerId} selectedPanelId={selectedPanelId} selectedItem={selectedStudioItem} onSelectItem={setSelectedStudioItem}/>
+          <StudioTree artwork={artwork} layout={layout} activeSide={activeSide} settings={sceneSettings} onChangeSettings={setSceneSettings} onChangeArtwork={setArtwork} onSelectSide={setActiveSide} onSelectLayer={handleSelectArtworkLayer} onSelectPanel={handleStudioSelectPanel} selectedLayerId={selectedArtworkLayerId} selectedPanelId={selectedPanelId} selectedItem={selectedStudioItem} onSelectItem={setSelectedStudioItem}/>
           <Sidebar
             boxStyleId={boxStyleId}
           dims={dims}
@@ -384,14 +389,15 @@ export default function App() {
                 selectedPanelId={selectedPanelId}
                 onSelectPanel={handleSelectPanel}
                 onUpdateSide={(updater) => setArtwork((a) => ({ ...a, [activeSide]: updater(a[activeSide]) }))}
-                showDimensions={showDimensions && sceneSettings.showProductionDimensions}
-                onToggleDimensions={setShowDimensions}
+                showDimensions={sceneSettings.showProductionDimensions}
+                onToggleDimensions={(value) => setSceneSettings((current) => ({ ...current, showProductionDimensions: value }))}
                 showCutLines={sceneSettings.showCutLines}
                 showFoldLines={sceneSettings.showFoldLines}
                 selectedProductionLayer={selectedStudioItem === "production:showCutLines" ? "cut" : selectedStudioItem === "production:showFoldLines" ? "fold" : null}
                 selectedArtworkLayerId={selectedArtworkLayerId}
-                onSelectArtworkLayer={setSelectedArtworkLayerId}
+                onSelectArtworkLayer={handleSelectArtworkLayer}
                 lockedLayerIds={sceneSettings.lockedLayerIds}
+                artworkSide={activeSide}
                 lockTemplate={lockTemplate}
                 onToggleLockTemplate={setLockTemplate}
               />
@@ -400,7 +406,7 @@ export default function App() {
           ) : (
             <div className="stage-3d">
               <Suspense fallback={<div className="stage-loading">Loading 3D studio…</div>}>
-                <Fold3D root={root} dims={dims} layout={layout} artwork={displayedArtwork} showDimensions={showDimensions} foldAmount={foldAmount} sceneSettings={sceneSettings} onChangeSceneSettings={setSceneSettings} onTransparentExportReady={(capture) => (transparentSceneExportRef.current = capture)} onSceneReady={(g) => (sceneRef.current = g)} onCanvasReady={(canvas) => (sceneCanvasRef.current = canvas)} onSelectPanel={handleStudioSelectPanel} />
+                <Fold3D root={root} dims={dims} layout={layout} artwork={displayedArtwork} showDimensions={sceneSettings.showProductionDimensions} foldAmount={foldAmount} sceneSettings={sceneSettings} onChangeSceneSettings={setSceneSettings} onTransparentExportReady={(capture) => (transparentSceneExportRef.current = capture)} onSceneReady={(g) => (sceneRef.current = g)} onCanvasReady={(canvas) => (sceneCanvasRef.current = canvas)} onSelectPanel={handleStudioSelectPanel} />
               </Suspense>
               <div className="fold-slider" aria-label="3D box folding controls">
                 <div className="fold-progress">
@@ -428,7 +434,7 @@ export default function App() {
                   {foldAmount >= 1 ? "Unfold" : "Close box"}
                 </button>
                 <label className="dim-toggle" title="Prints each panel's width x height right on its face.">
-                  <input type="checkbox" checked={showDimensions} onChange={(e) => setShowDimensions(e.target.checked)} />
+                  <input type="checkbox" checked={sceneSettings.showProductionDimensions} onChange={(e) => setSceneSettings((current) => ({ ...current, showProductionDimensions: e.target.checked }))} />
                   Measurements
                 </label>
               </div>
@@ -443,7 +449,8 @@ export default function App() {
           onChangeActiveSide={setActiveSide}
           selectedPanelId={selectedPanelId}
           onUpdateArtwork={setArtwork}
-        /> : <StudioInspector settings={sceneSettings} onChange={setSceneSettings} selectedItem={selectedStudioItem} layout={layout} selectedPanelId={selectedPanelId}/> }
+          lockedLayerIds={sceneSettings.lockedLayerIds}
+        /> : <StudioInspector settings={sceneSettings} onChange={setSceneSettings} artwork={artwork} onChangeArtwork={setArtwork} activeSide={activeSide} onChangeActiveSide={setActiveSide} selectedItem={selectedStudioItem} layout={layout} selectedPanelId={selectedPanelId}/> }
       </div>
     </div>
   );
