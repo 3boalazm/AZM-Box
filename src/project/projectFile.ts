@@ -2,6 +2,8 @@ import type { BoxDimensions, BoxStyleId } from "../geometry/types";
 import type { ArtworkState, SideArtwork, EditorLayer } from "../artwork/types";
 import { emptySide } from "../artwork/types";
 import { BOX_STYLES } from "../geometry/boxBuilders";
+import { DEFAULT_SCENE_SETTINGS, normalizeSceneSettings } from "./sceneSettings";
+import type { SceneSettings } from "./sceneSettings";
 
 /**
  * PackBox project file (.pbox).
@@ -16,23 +18,25 @@ import { BOX_STYLES } from "../geometry/boxBuilders";
  */
 export interface ProjectFile {
   app: "packbox";
-  version: 1;
+  version: 2;
   savedAt: string; // ISO timestamp, informational only
   boxStyleId: BoxStyleId;
   dims: BoxDimensions;
   artwork: ArtworkState;
+  scene: SceneSettings;
 }
 
 export const PROJECT_EXTENSION = ".pbox";
 
-export function serializeProject(boxStyleId: BoxStyleId, dims: BoxDimensions, artwork: ArtworkState): string {
+export function serializeProject(boxStyleId: BoxStyleId, dims: BoxDimensions, artwork: ArtworkState, scene: SceneSettings = DEFAULT_SCENE_SETTINGS): string {
   const file: ProjectFile = {
     app: "packbox",
-    version: 1,
+    version: 2,
     savedAt: new Date().toISOString(),
     boxStyleId,
     dims,
     artwork,
+    scene: normalizeSceneSettings(scene),
   };
   return JSON.stringify(file);
 }
@@ -101,7 +105,7 @@ function normalizeSide(raw: unknown, fallbackColor: string): SideArtwork {
  * Parses and validates a .pbox file's text. Throws with a human-readable
  * message on anything unusable; tolerates and repairs missing optional fields.
  */
-export function parseProject(text: string): { boxStyleId: BoxStyleId; dims: BoxDimensions; artwork: ArtworkState } {
+export function parseProject(text: string): { boxStyleId: BoxStyleId; dims: BoxDimensions; artwork: ArtworkState; scene: SceneSettings } {
   let raw: unknown;
   try {
     raw = JSON.parse(text);
@@ -111,9 +115,9 @@ export function parseProject(text: string): { boxStyleId: BoxStyleId; dims: BoxD
   if (typeof raw !== "object" || raw === null || (raw as Record<string, unknown>).app !== "packbox") {
     throw new Error("This is not a PackBox project file.");
   }
-  const file = raw as Partial<ProjectFile> & Record<string, unknown>;
-  if (file.version !== 1) {
-    throw new Error(`Unsupported project version (${String(file.version)}). This app reads version 1.`);
+  const file = raw as Record<string, unknown> & { version?: number; boxStyleId?: BoxStyleId; dims?: BoxDimensions; artwork?: ArtworkState; scene?: SceneSettings };
+  if (file.version !== 1 && file.version !== 2) {
+    throw new Error(`Unsupported project version (${String(file.version)}). This app reads versions 1 and 2.`);
   }
 
   const style = BOX_STYLES.find((s) => s.id === file.boxStyleId);
@@ -157,5 +161,5 @@ export function parseProject(text: string): { boxStyleId: BoxStyleId; dims: BoxD
     inside: normalizeSide(a.inside, "#f2ede3"),
   };
 
-  return { boxStyleId: style.id, dims, artwork };
+  return { boxStyleId: style.id, dims, artwork, scene: normalizeSceneSettings(file.version === 2 ? file.scene : DEFAULT_SCENE_SETTINGS) };
 }
