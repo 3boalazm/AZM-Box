@@ -1,8 +1,8 @@
-import { useMemo, useRef } from "react";
-import { Canvas } from "@react-three/fiber";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Canvas, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
-import type { PanelNode } from "../geometry/types";
+import type { BoxDimensions, PanelNode } from "../geometry/types";
 import { rect } from "../geometry/shapes";
 import type { PanelTextures } from "../artwork/usePanelTextures";
 
@@ -64,7 +64,7 @@ function PanelMesh({ node, textures }: { node: PanelNode; textures?: PanelTextur
 
   return (
     <>
-      <mesh geometry={geometry}>
+      <mesh geometry={geometry} visible={node.face !== "glue"}>
         <meshStandardMaterial
           key={outsideKey}
           map={textures?.outside}
@@ -119,48 +119,82 @@ function PanelGroup({
   );
 }
 
+type CameraPreset = "front" | "back" | "left" | "right" | "top" | "iso";
+type StudioControls = { current: { target: THREE.Vector3; update: () => void } | null };
+
+function CameraRig({ dims, preset, controlsRef }: { dims: BoxDimensions; preset: CameraPreset; controlsRef: StudioControls }) {
+  const { camera } = useThree();
+  useEffect(() => {
+    const target = new THREE.Vector3(dims.length / 2, dims.height / 2, -dims.width / 2);
+    const radius = Math.max(dims.length, dims.width, dims.height) * 2.5;
+    const offsets: Record<CameraPreset, [number, number, number]> = {
+      front: [0, 0, radius], back: [0, 0, -radius], left: [-radius, 0, 0],
+      right: [radius, 0, 0], top: [0, radius, 0], iso: [radius * 0.8, radius * 0.65, radius * 0.9],
+    };
+    camera.position.copy(target).add(new THREE.Vector3(...offsets[preset]));
+    camera.up.set(0, 1, 0);
+    if (preset === "top") camera.up.set(0, 0, -1);
+    camera.lookAt(target);
+    if (controlsRef.current) {
+      controlsRef.current.target.copy(target);
+      controlsRef.current.update();
+    }
+  }, [camera, controlsRef, dims.height, dims.length, dims.width, preset]);
+  return null;
+}
+
 interface Fold3DProps {
   root: PanelNode;
+  dims: BoxDimensions;
   foldAmount: number;
   texturesById: Map<string, PanelTextures>;
   onSceneReady?: (group: THREE.Group) => void;
+  onCanvasReady?: (canvas: HTMLCanvasElement) => void;
 }
 
-export default function Fold3D({ root, foldAmount, texturesById, onSceneReady }: Fold3DProps) {
+export default function Fold3D({ root, dims, foldAmount, texturesById, onSceneReady, onCanvasReady }: Fold3DProps) {
   const groupRef = useRef<THREE.Group>(null);
+  const controlsRef = useRef<StudioControls["current"]>(null);
+  const [studioOpen, setStudioOpen] = useState(false);
+  const [background, setBackground] = useState("#1c1f26");
+  const [ambient, setAmbient] = useState(0.75);
+  const [keyLight, setKeyLight] = useState(0.9);
+  const [preset, setPreset] = useState<CameraPreset>("iso");
+  const presets: { id: CameraPreset; label: string }[] = [
+    { id: "front", label: "Front" }, { id: "back", label: "Back" }, { id: "left", label: "Left" },
+    { id: "right", label: "Right" }, { id: "top", label: "Top" }, { id: "iso", label: "Iso" },
+  ];
 
   return (
-    <Canvas camera={{ position: [260, 220, 320], fov: 40, near: 1, far: 5000 }}>
-      <color attach="background" args={["#1c1f26"]} />
-      <ambientLight intensity={0.75} />
-      <directionalLight position={[300, 400, 200]} intensity={0.9} />
-      <directionalLight position={[-200, 150, -300]} intensity={0.4} />
-      <directionalLight position={[0, -250, 100]} intensity={0.25} />
-      <group
-        ref={(g) => {
-          groupRef.current = g;
-          if (g && onSceneReady) onSceneReady(g);
-        }}
-      >
-        <PanelGroup node={root} parentW={root.w} parentH={root.h} foldAmount={foldAmount} texturesById={texturesById} />
-      </group>
-      {/* No floor/grid mesh — the box is centered in free space so orbiting all the way
-          around (including from below) never clips through a ground plane.
-          No polar/azimuth angle limits either — full free-spin in every direction.
-          minDistance/maxDistance are just a numeric guard rail (so you can't dolly
-          the camera INTO the mesh or scroll it out to where it's a single pixel),
-          set very wide so they shouldn't be reachable in normal use. */}
-      <OrbitControls
-        makeDefault
-        enableDamping
-        dampingFactor={0.08}
-        minDistance={5}
-        maxDistance={20000}
-        minPolarAngle={0}
-        maxPolarAngle={Math.PI}
-        minAzimuthAngle={-Infinity}
-        maxAzimuthAngle={Infinity}
-      />
-    </Canvas>
+    <div className="fold3d-root">
+      <Canvas className="fold3d-canvas" dpr={[1, 2]} gl={{ preserveDrawingBuffer: true, antialias: true, alpha: false }} camera={{ position: [260, 220, 320], fov: 40, near: 1, far: 5000 }} onCreated={({ gl }) => onCanvasReady?.(gl.domElement)}>
+        <color attach="background" args={[background]} />
+        <ambientLight intensity={ambient} />
+        <directionalLight position={[300, 400, 200]} intensity={keyLight} />
+        <directionalLight position={[-200, 150, -300]} intensity={keyLight * 0.45} />
+        <directionalLight position={[0, -250, 100]} intensity={keyLight * 0.25} />
+        <group ref={(g) => { groupRef.current = g; if (g && onSceneReady) onSceneReady(g); }}>
+          <PanelGroup node={root} parentW={root.w} parentH={root.h} foldAmount={foldAmount} texturesById={texturesById} />
+        </group>
+        <CameraRig dims={dims} preset={preset} controlsRef={controlsRef} />
+        <OrbitControls ref={controlsRef as never} makeDefault enableDamping dampingFactor={0.08} minDistance={5} maxDistance={20000} minPolarAngle={0} maxPolarAngle={Math.PI} minAzimuthAngle={-Infinity} maxAzimuthAngle={Infinity} />
+      </Canvas>
+      <div className="studio-trigger-wrap">
+        <button type="button" className={`studio-trigger${studioOpen ? " active" : ""}`} onClick={() => setStudioOpen((open) => !open)} aria-expanded={studioOpen}>✦ Studio</button>
+        {studioOpen && <section className="studio-panel" aria-label="3D studio settings">
+          <header><strong>3D Studio</strong><button type="button" className="icon-btn" onClick={() => setStudioOpen(false)} aria-label="Close studio controls">×</button></header>
+          <div className="studio-section"><span className="studio-label">Camera angle</span><div className="studio-angle-grid">
+            {presets.map((item) => <button key={item.id} type="button" className={preset === item.id ? "selected" : ""} onClick={() => setPreset(item.id)}>{item.label}</button>)}
+          </div></div>
+          <div className="studio-section"><span className="studio-label">Background</span><div className="studio-backgrounds">
+            {["#1c1f26", "#f2f4f7", "#ffffff", "#dce4ec", "#121a2b"].map((color) => <button key={color} type="button" aria-label={`Background ${color}`} title={color} className={background === color ? "selected" : ""} style={{ background: color }} onClick={() => setBackground(color)} />)}
+            <input type="color" aria-label="Custom background color" value={background} onChange={(event) => setBackground(event.target.value)} />
+          </div></div>
+          <label className="studio-light-slider">Ambient light <b>{ambient.toFixed(1)}</b><input type="range" min="0.1" max="2" step="0.05" value={ambient} onChange={(event) => setAmbient(Number(event.target.value))} /></label>
+          <label className="studio-light-slider">Key light <b>{keyLight.toFixed(1)}</b><input type="range" min="0.1" max="2" step="0.05" value={keyLight} onChange={(event) => setKeyLight(Number(event.target.value))} /></label>
+          <p className="studio-hint">Drag to orbit; scroll to zoom.</p>
+        </section>}
+      </div>
+    </div>
   );
 }

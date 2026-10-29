@@ -82,6 +82,12 @@ export interface BoxDimensions {
    * an explicit 0 omits that flap entirely.
    */
   flaps?: Partial<Record<FlapWall, number>>;
+  /** Independent top/bottom flap depths; 0 removes, a positive value creates/resizes. */
+  flapEdges?: Partial<Record<"top" | "bottom", Partial<Record<FlapWall, number>>>>;
+  /** Width along each wall, centered and shared by its top and bottom flaps. */
+  flapWidths?: Partial<Record<FlapWall, number>>;
+  /** Shared outline style for a wall's top and bottom flaps. */
+  flapShapes?: Partial<Record<FlapWall, "default" | "straight" | "dust" | "tuck" | "lock">>;
   /**
    * Flap at the LEFT end of the unfolded strip. Defaults to 0 (no panel) —
    * most styles only have a right-end tab.
