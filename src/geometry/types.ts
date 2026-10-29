@@ -103,6 +103,7 @@ export interface BoxDimensions {
 
 export type BoxStyleId =
   | "tuck-end"
+  | "reverse-tuck-end"
   | "rsc"
   | "card-deck"
   | "card-deck-lock"
