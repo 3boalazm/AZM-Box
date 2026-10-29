@@ -6,6 +6,7 @@ import { panelLocalToWorld, worldToPanelLocal } from "../geometry/types";
 import type { EditorLayer, SideArtwork } from "../artwork/types";
 import { computeDimensionLines } from "../geometry/dimensions";
 import { useImage } from "./useImage";
+import Icon from "./Icon";
 
 interface Props {
   layout: DielineLayout;
@@ -310,6 +311,7 @@ export default function DielineEditor({
 }: Props) {
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
+  const userZoomRef = useRef(false);
   const [shiftHeld, setShiftHeld] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
   // Shadows the `pxPerMm` prop for the rest of this component — every existing
@@ -498,7 +500,33 @@ export default function DielineEditor({
    * off-screen as you zoom.
    */
   const viewportRef = useRef<HTMLDivElement>(null);
-  const applyZoom = (nextZoom: number, anchor?: { x: number; y: number }) => {
+  const computeFitZoom = () => {
+    const vp = viewportRef.current;
+    if (!vp) return 1;
+    const contentWidth = (layout.bounds.width + contentPadMm * 2) * basePxPerMm;
+    const contentHeight = (layout.bounds.height + contentPadMm * 2) * basePxPerMm;
+    const fitX = Math.max(0.01, (vp.clientWidth - 44) / contentWidth);
+    const fitY = Math.max(0.01, (vp.clientHeight - 94) / contentHeight);
+    return clampZoom(Math.min(1, fitX, fitY));
+  };
+  useEffect(() => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const updateFit = () => {
+      if (userZoomRef.current) return;
+      const width = (layout.bounds.width + contentPadMm * 2) * basePxPerMm;
+      const height = (layout.bounds.height + contentPadMm * 2) * basePxPerMm;
+      const fitX = Math.max(0.01, (vp.clientWidth - 44) / width);
+      const fitY = Math.max(0.01, (vp.clientHeight - 94) / height);
+      setZoom(clampZoom(Math.min(1, fitX, fitY)));
+    };
+    const observer = new ResizeObserver(updateFit);
+    observer.observe(vp);
+    const frame = requestAnimationFrame(updateFit);
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); };
+  }, [basePxPerMm, contentPadMm, layout.bounds.height, layout.bounds.width]);
+  const applyZoom = (nextZoom: number, anchor?: { x: number; y: number }, manual = true) => {
+    if (manual) userZoomRef.current = true;
     const vp = viewportRef.current;
     const prev = zoom;
     const next = clampZoom(nextZoom);
@@ -519,6 +547,7 @@ export default function DielineEditor({
       vp.scrollTop = contentY * next - ay;
     });
   };
+  const fitToView = () => { userZoomRef.current = false; applyZoom(computeFitZoom(), undefined, false); };
 
   // Registered natively (not via React's onWheel) so it can be non-passive and
   // therefore actually able to preventDefault the page/zoom gesture.
@@ -538,28 +567,20 @@ export default function DielineEditor({
 
   return (
     <div className="dieline-canvas-wrap">
-      <div className="zoom-toolbar">
-        <button type="button" onClick={() => applyZoom(zoom / 1.25)} title="Zoom out">
-          −
-        </button>
-        <button type="button" className="zoom-readout" onClick={() => applyZoom(1)} title="Reset to 100%">
-          {Math.round(zoom * 100)}%
-        </button>
-        <button type="button" onClick={() => applyZoom(zoom * 1.25)} title="Zoom in">
-          +
-        </button>
-        <span className="toolbar-sep" />
-        <label className="toolbar-check" title="Overlay double-arrow measurements on the dieline.">
-          <input type="checkbox" checked={!!showDimensions} onChange={(e) => onToggleDimensions?.(e.target.checked)} />
-          Measure
+      <div className="zoom-toolbar" role="toolbar" aria-label="Dieline canvas tools">
+        <button type="button" aria-label="Zoom out" onClick={() => applyZoom(zoom / 1.25)} title="Zoom out">−</button>
+        <button type="button" className="zoom-readout" onClick={fitToView} title="Fit the full dieline into the canvas">{Math.round(zoom * 100)}%</button>
+        <button type="button" aria-label="Zoom in" onClick={() => applyZoom(zoom * 1.25)} title="Zoom in">+</button>
+        <span className="toolbar-sep" aria-hidden="true" />
+        <label className="toolbar-check" title="Overlay measured dimensions on the dieline.">
+          <input aria-label="Show dimensions" type="checkbox" checked={!!showDimensions} onChange={(e) => onToggleDimensions?.(e.target.checked)} />
+          <span><Icon name="ruler"/> Measurements</span>
         </label>
-        <label
-          className="toolbar-check"
-          title="Off: clicking the dieline selects panels, and artwork can only be grabbed outside the lines. On: the dieline ignores clicks so you can grab and move the artwork anywhere."
-        >
-          <input type="checkbox" checked={lockTemplate} onChange={(e) => onToggleLockTemplate?.(e.target.checked)} />
-          Lock
+        <label className={`toolbar-check${lockTemplate ? " selected" : ""}`} title="Enable to click through the dieline and select artwork anywhere on the sheet.">
+          <input aria-label="Select artwork through the dieline" type="checkbox" checked={lockTemplate} onChange={(e) => onToggleLockTemplate?.(e.target.checked)} />
+          <span><Icon name="image"/> Pick artwork</span>
         </label>
+        <span className="sheet-readout">{layout.bounds.width.toFixed(0)} × {layout.bounds.height.toFixed(0)} mm</span>
       </div>
       <div
         className="dieline-viewport"
@@ -578,7 +599,7 @@ export default function DielineEditor({
         // While Space is held, drags pan the viewport — the canvas must not also
         // grab them and move a shape at the same time.
         listening={!spaceHeld}
-        style={{ background: "#e9ebf0", borderRadius: 8, margin: "auto" }}
+        style={{ background: "var(--paper)", borderRadius: 4, margin: "auto" }}
       >
       <Layer>
         <Rect

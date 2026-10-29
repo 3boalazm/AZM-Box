@@ -6,6 +6,7 @@ import { rect } from "../geometry/shapes";
 import type { PanelTextures } from "../artwork/usePanelTextures";
 import { usePanelTextures } from "../artwork/usePanelTextures";
 import type { ArtworkState } from "../artwork/types";
+import Icon from "./Icon";
 
 const OrbitControls = lazy(() => import("@react-three/drei").then(({ OrbitControls }) => ({ default: OrbitControls })));
 
@@ -162,7 +163,7 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
   const groupRef = useRef<THREE.Group>(null);
   const controlsRef = useRef<StudioControls["current"]>(null);
   const [studioOpen, setStudioOpen] = useState(false);
-  const [background, setBackground] = useState("#1c1f26");
+  const [background, setBackground] = useState("#e9e6df");
   const [ambient, setAmbient] = useState(0.75);
   const [keyLight, setKeyLight] = useState(0.9);
   const [preset, setPreset] = useState<CameraPreset>("iso");
@@ -170,6 +171,11 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
     { id: "front", label: "Front" }, { id: "back", label: "Back" }, { id: "left", label: "Left" },
     { id: "right", label: "Right" }, { id: "top", label: "Top" }, { id: "iso", label: "Iso" },
   ];
+  useEffect(() => {
+    const closeStudio = () => setStudioOpen(false);
+    window.addEventListener("packbox:export-menu-open", closeStudio);
+    return () => window.removeEventListener("packbox:export-menu-open", closeStudio);
+  }, []);
 
   return (
     <div className="fold3d-root">
@@ -188,14 +194,14 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
         </Suspense>
       </Canvas>
       <div className="studio-trigger-wrap">
-        <button type="button" className={`studio-trigger${studioOpen ? " active" : ""}`} onClick={() => setStudioOpen((open) => !open)} aria-expanded={studioOpen}>✦ Studio</button>
-        {studioOpen && <section className="studio-panel" aria-label="3D studio settings">
-          <header><strong>3D Studio</strong><button type="button" className="icon-btn" onClick={() => setStudioOpen(false)} aria-label="Close studio controls">×</button></header>
+        <button type="button" className={`studio-trigger${studioOpen ? " active" : ""}`} onClick={() => setStudioOpen((open) => !open)} aria-expanded={studioOpen} aria-controls="studio-settings"><Icon name="cube"/> Scene settings</button>
+        {studioOpen && <section id="studio-settings" className="studio-panel" aria-label="3D studio settings">
+          <header><strong>3D Studio</strong><button type="button" className="icon-btn" onClick={() => setStudioOpen(false)} aria-label="Close studio controls"><Icon name="close"/></button></header>
           <div className="studio-section"><span className="studio-label">Camera angle</span><div className="studio-angle-grid">
             {presets.map((item) => <button key={item.id} type="button" className={preset === item.id ? "selected" : ""} onClick={() => setPreset(item.id)}>{item.label}</button>)}
           </div></div>
           <div className="studio-section"><span className="studio-label">Background</span><div className="studio-backgrounds">
-            {["#1c1f26", "#f2f4f7", "#ffffff", "#dce4ec", "#121a2b"].map((color) => <button key={color} type="button" aria-label={`Background ${color}`} title={color} className={background === color ? "selected" : ""} style={{ background: color }} onClick={() => setBackground(color)} />)}
+            {["#e9e6df", "#f5f3ed", "#ffffff", "#dce4ec", "#23252b"].map((color) => <button key={color} type="button" aria-label={`Background ${color}`} title={color} className={background === color ? "selected" : ""} style={{ background: color }} onClick={() => setBackground(color)} />)}
             <input type="color" aria-label="Custom background color" value={background} onChange={(event) => setBackground(event.target.value)} />
           </div></div>
           <label className="studio-light-slider">Ambient light <b>{ambient.toFixed(1)}</b><input type="range" min="0.1" max="2" step="0.05" value={ambient} onChange={(event) => setAmbient(Number(event.target.value))} /></label>

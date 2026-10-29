@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DielineLayout } from "../geometry/types";
 import type { ArtworkState, SideArtwork } from "../artwork/types";
 import { sideHasContent } from "../artwork/types";
@@ -7,6 +7,7 @@ import { generateDielineSVG } from "../geometry/svgExport";
 import { generateDielineDXF } from "../geometry/dxfExport";
 import { downloadBlob } from "../lib/files";
 import type * as THREE from "three";
+import Icon from "./Icon";
 
 interface Props {
   layout: DielineLayout;
@@ -30,6 +31,10 @@ function forPrint(side: SideArtwork): SideArtwork {
 export default function ExportBar({ layout, artwork, title, sceneRef, sceneCanvasRef, activeTab }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [includeMeasurements, setIncludeMeasurements] = useState(false);
+  const exportMenuRef = useRef<HTMLDetailsElement>(null);
+  useEffect(() => { if (exportMenuRef.current) exportMenuRef.current.open = false; }, [activeTab]);
+  const closeExportMenu = () => { if (exportMenuRef.current) exportMenuRef.current.open = false; };
+  const runFromMenu = (action: () => void) => { action(); closeExportMenu(); };
 
   const run = async (name: string, fn: () => Promise<void>) => {
     setBusy(name);
@@ -130,38 +135,27 @@ export default function ExportBar({ layout, artwork, title, sceneRef, sceneCanva
     downloadBlob(`${title}_3d.pdf`, doc.output("blob"));
   });
 
-  const insidePrintNote = sideHasContent(artwork.inside)
-    ? " The inside surface has artwork, so the SVG saves outside and inside as two separate, unmirrored files."
-    : "";
-
   return (
-    <div className="export-bar">
-      <label className="export-checkbox" title="Overlay double-arrow measurements (overall size + every panel) on the SVG/PDF export — handy for checking the drawing or printing quick mockups, not meant for final production art.">
-        <input type="checkbox" checked={includeMeasurements} onChange={(e) => setIncludeMeasurements(e.target.checked)} />
-        Print measurements
-      </label>
-      <button disabled={!!busy} onClick={exportSVG} title={`Vector picture of the dieline.${insidePrintNote}`}>
-        {busy === "svg" ? "Exporting…" : "Export SVG"}
+    <div className="export-bar" aria-label="Export project">
+      <button type="button" className="export-primary" disabled={!!busy} onClick={exportPDF} title="Print-ready A4 PDF with the dieline and both box faces.">
+        <Icon name="download"/><span>{busy === "pdf" ? "Preparing…" : "Export PDF"}</span>
       </button>
-      <button
-        disabled={!!busy}
-        onClick={exportPDF}
-        title={`Prints true-to-size on A4 paper. Always exports both faces: an outside page and an inside page (each with cut + crease lines), paired for duplex printing with "flip on long edge". Tiled across multiple pages with alignment marks if the dieline is larger than one sheet.`}
-      >
-        {busy === "pdf" ? "Exporting…" : "Export PDF (A4)"}
-      </button>
-      <button disabled={!!busy} onClick={exportDXF}>
-        {busy === "dxf" ? "Exporting…" : "Export DXF"}
-      </button>
-      {activeTab === "3d" && <>
-        <span className="export-divider" aria-hidden="true" />
-        <button disabled={!!busy} onClick={() => exportSceneImage("png")} title="Save the current 3D view as PNG">{busy === "png" ? "Exporting…" : "Scene PNG"}</button>
-        <button disabled={!!busy} onClick={() => exportSceneImage("jpg")} title="Save the current 3D view as JPG">{busy === "jpg" ? "Exporting…" : "Scene JPG"}</button>
-        <button disabled={!!busy} onClick={exportScenePDF} title="Save the current 3D view on landscape A4">{busy === "scene-pdf" ? "Exporting…" : "Scene PDF"}</button>
-      </>}
-      <button disabled={!!busy || activeTab !== "3d"} onClick={exportModel} title={activeTab !== "3d" ? "Switch to the 3D tab first" : ""}>
-        {busy === "glb" ? "Exporting…" : "Export 3D Model (.glb)"}
-      </button>
+      <details ref={exportMenuRef} className="export-menu" onToggle={(event) => { if (event.currentTarget.open) window.dispatchEvent(new Event("packbox:export-menu-open")); }}>
+        <summary aria-label="More export options" title="More export options"><Icon name="more"/><Icon name="chevron"/></summary>
+        <div className="export-popover" role="group" aria-label="Export options">
+          <div className="export-group-label">PRODUCTION FILES</div>
+          <button type="button" className="export-option" disabled={!!busy} onClick={() => runFromMenu(exportSVG)}><span><b>SVG dieline</b><small>Vector artwork · outside / inside</small></span><Icon name="download"/></button>
+          <button type="button" className="export-option" disabled={!!busy} onClick={() => runFromMenu(exportDXF)}><span><b>DXF cut file</b><small>CAD-ready cut and crease lines</small></span><Icon name="download"/></button>
+          <button type="button" className="export-option" disabled={!!busy || activeTab !== "3d"} onClick={() => runFromMenu(exportModel)} title={activeTab !== "3d" ? "Open 3D Studio before exporting the model." : "Export the assembled model."}><span><b>3D model · GLB</b><small>{activeTab === "3d" ? "Folded packaging geometry" : "Available in 3D Studio"}</small></span><Icon name="download"/></button>
+          <label className="export-measurements"><input type="checkbox" checked={includeMeasurements} onChange={(e) => setIncludeMeasurements(e.target.checked)}/><span>Include measurement marks</span></label>
+          <div className="export-group-label presentation-label">PRESENTATION</div>
+          <div className="presentation-exports">
+            <button type="button" className="export-option" disabled={!!busy || activeTab !== "3d"} onClick={() => runFromMenu(() => exportSceneImage("png"))} title="Save the current 3D view as PNG"><span><b>Scene image · PNG</b><small>Transparent-free preview capture</small></span><Icon name="image"/></button>
+            <button type="button" className="export-option" disabled={!!busy || activeTab !== "3d"} onClick={() => runFromMenu(() => exportSceneImage("jpg"))} title="Save the current 3D view as JPG"><span><b>Scene image · JPG</b><small>Compressed preview capture</small></span><Icon name="image"/></button>
+            <button type="button" className="export-option" disabled={!!busy || activeTab !== "3d"} onClick={() => runFromMenu(exportScenePDF)} title="Save the current 3D view on landscape A4"><span><b>Scene PDF</b><small>Landscape A4 presentation</small></span><Icon name="download"/></button>
+          </div>
+        </div>
+      </details>
     </div>
   );
 }
