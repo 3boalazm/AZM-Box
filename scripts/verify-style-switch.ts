@@ -1,15 +1,19 @@
 import { BOX_STYLES } from "../src/geometry/boxBuilders";
 import { transferDimensionsToTemplate } from "../src/geometry/templateDimensions";
 
-const current = { length: 123, width: 67, height: 175, flaps: { front: 42 }, endFlapRight: 33 };
+const current = {
+  length: 123, width: 67, height: 175, flaps: { front: 42 }, endFlapRight: 33,
+  flapEdges: { top: { front: 29 }, bottom: { back: 18 } },
+  flapWidths: { front: 84 }, flapShapes: { front: "tuck" as const }, lidDepth: 61,
+};
 const target = BOX_STYLES.find((style) => style.id === "reverse-tuck-end")!;
-const next = transferDimensionsToTemplate(current, target.defaultDimensions);
+const carried = transferDimensionsToTemplate(current, target.defaultDimensions, true);
+const reset = transferDimensionsToTemplate(current, target.defaultDimensions);
 const checks = [
-  ["length is preserved", next.length === 123],
-  ["width is preserved", next.width === 67],
-  ["height is preserved", next.height === 175],
-  ["style-specific flap overrides reset to target defaults", next.flaps === target.defaultDimensions.flaps],
-  ["glue flap resets to target default", next.endFlapRight === target.defaultDimensions.endFlapRight],
+  ["length, width, and height are preserved in both choices", carried.length === 123 && carried.width === 67 && carried.height === 175 && reset.length === 123 && reset.width === 67 && reset.height === 175],
+  ["shared flap and closure overrides carry when requested", carried.flaps?.front === 42 && carried.endFlapRight === 33 && carried.flapEdges?.top?.front === 29 && carried.flapWidths?.front === 84 && carried.flapShapes?.front === "tuck"],
+  ["template-only lid depth is not applied to an incompatible template", carried.lidDepth === undefined],
+  ["Cancel/default choice uses target-specific settings", reset.flaps === target.defaultDimensions.flaps && reset.endFlapRight === target.defaultDimensions.endFlapRight && reset.lidDepth === undefined],
 ] as const;
 let failed = false;
 for (const [label, pass] of checks) {

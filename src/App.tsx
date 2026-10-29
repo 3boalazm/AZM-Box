@@ -22,6 +22,10 @@ const DielineEditor = lazy(() => import("./components/DielineEditor"));
 export default function App() {
   const [boxStyleId, setBoxStyleId] = useState<BoxStyleId>("tuck-end");
   const [dims, setDims] = useState<BoxDimensions>(BOX_STYLES[0].defaultDimensions);
+  const [templateMemory, setTemplateMemory] = useState<Partial<Record<BoxStyleId, BoxDimensions>>>(() => ({
+    [BOX_STYLES[0].id]: { ...BOX_STYLES[0].defaultDimensions },
+  }));
+  const [autosaveStatus, setAutosaveStatus] = useState<"saving" | "saved" | "error">("saving");
   const [artwork, setArtwork] = useState(emptyArtwork());
   const [activeSide, setActiveSide] = useState<"outside" | "inside">("outside");
   const [selectedPanelId, setSelectedPanelId] = useState<string | null>(null);
@@ -36,6 +40,7 @@ export default function App() {
   const sceneCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const transparentSceneExportRef = useRef<(() => Promise<Blob>) | null>(null);
   const skipNextArtworkAnchorAdjust = useRef(false);
+  const restorePromptHandled = useRef(false);
   const foldAnimationRef = useRef<number | null>(null);
 
   const animateFoldTo = (target: number) => {
@@ -107,18 +112,30 @@ export default function App() {
   };
 
   const handleChangeStyle = (id: BoxStyleId) => {
+    if (id === boxStyleId) return;
+    const memory = { ...templateMemory, [boxStyleId]: { ...dims } };
+    const remembered = memory[id];
+    let nextDims: BoxDimensions;
+    if (remembered) {
+      nextDims = { ...remembered };
+    } else {
+      const keepCustom = window.confirm(
+        "Keep the current flap and closure settings when switching templates? Choose OK to carry compatible custom values; choose Cancel to use the new template's flap/closure defaults. Length, width, and height are preserved either way. Settings that only apply to this template remain saved in its template memory.",
+      );
+      nextDims = transferDimensionsToTemplate(dims, getBoxStyle(id).defaultDimensions, keepCustom);
+      memory[id] = { ...nextDims };
+    }
     skipNextArtworkAnchorAdjust.current = true;
+    setTemplateMemory(memory);
     setBoxStyleId(id);
-    const defaults = getBoxStyle(id).defaultDimensions;
-    // Geometry dimensions are user intent and transfer safely between templates;
-    // flap and closure values are style-specific, so seed those from the new style.
-    setDims(transferDimensionsToTemplate(dims, defaults));
+    setDims(nextDims);
     setSceneSettings((current) => ({ ...current, cameraPose: null }));
     setSelectedPanelId(null);
   };
 
   const handleChangeDimensions = (next: BoxDimensions) => {
     setDims(next);
+    setTemplateMemory((current) => ({ ...current, [boxStyleId]: { ...next } }));
     setSceneSettings((current) => ({ ...current, cameraPose: null }));
   };
 
@@ -159,6 +176,7 @@ export default function App() {
     skipNextArtworkAnchorAdjust.current = true;
     setBoxStyleId(snap.boxStyleId);
     setDims(snap.dims);
+    setTemplateMemory((current) => ({ ...current, [snap.boxStyleId]: { ...snap.dims } }));
     setArtwork(snap.artwork);
     setSceneSettings((current) => ({ ...current, cameraPose: null }));
     setSelectedPanelId(null);
@@ -208,6 +226,7 @@ export default function App() {
     skipNextArtworkAnchorAdjust.current = true;
     setBoxStyleId(BOX_STYLES[0].id);
     setDims({ ...BOX_STYLES[0].defaultDimensions });
+    setTemplateMemory({ [BOX_STYLES[0].id]: { ...BOX_STYLES[0].defaultDimensions } });
     setArtwork(emptyArtwork());
     setSelectedPanelId(null);
     setActiveSide("outside");
@@ -216,7 +235,7 @@ export default function App() {
   };
 
   const saveProject = () => {
-    const json = serializeProject(boxStyleId, dims, artwork, sceneSettings);
+    const json = serializeProject(boxStyleId, dims, artwork, sceneSettings, templateMemory);
     const name = `${getBoxStyle(boxStyleId).label.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}${PROJECT_EXTENSION}`;
     downloadBlob(name, new Blob([json], { type: "application/json" }));
   };
@@ -228,6 +247,7 @@ export default function App() {
       skipNextArtworkAnchorAdjust.current = true;
       setBoxStyleId(loaded.boxStyleId);
       setDims(loaded.dims);
+      setTemplateMemory({ ...loaded.templateMemory, [loaded.boxStyleId]: { ...loaded.dims } });
       setArtwork(loaded.artwork);
       setSceneSettings(loaded.scene);
       setSelectedPanelId(null);
@@ -245,17 +265,22 @@ export default function App() {
   // Keep a recoverable local copy of the complete project. Large embedded artwork
   // can exceed browser storage quotas, so autosave is best-effort and never blocks editing.
   useEffect(() => {
+    setAutosaveStatus("saving");
     const timer = window.setTimeout(() => {
       try {
-        window.localStorage.setItem("azm-box:autosave", serializeProject(boxStyleId, dims, artwork, sceneSettings));
+        window.localStorage.setItem("azm-box:autosave", serializeProject(boxStyleId, dims, artwork, sceneSettings, templateMemory));
+        setAutosaveStatus("saved");
       } catch (error) {
         console.warn("AZM-Box autosave could not be written (browser storage may be full).", error);
+        setAutosaveStatus("error");
       }
     }, 600);
     return () => window.clearTimeout(timer);
-  }, [artwork, boxStyleId, dims, sceneSettings]);
+  }, [artwork, boxStyleId, dims, sceneSettings, templateMemory]);
 
   useEffect(() => {
+    if (restorePromptHandled.current) return;
+    restorePromptHandled.current = true;
     try {
       const saved = window.localStorage.getItem("azm-box:autosave");
       if (!saved) return;
@@ -264,6 +289,7 @@ export default function App() {
       skipNextArtworkAnchorAdjust.current = true;
       setBoxStyleId(recovered.boxStyleId);
       setDims(recovered.dims);
+      setTemplateMemory({ ...recovered.templateMemory, [recovered.boxStyleId]: { ...recovered.dims } });
       setArtwork(recovered.artwork);
       setSceneSettings(recovered.scene);
     } catch (error) {
@@ -291,6 +317,9 @@ export default function App() {
           <button type="button" className="header-action" onClick={newProject} title="Start a fresh project (undoable)."><Icon name="new"/><span>New</span></button>
           <button type="button" className="header-icon-button" onClick={() => openInputRef.current?.click()} title="Open a saved .pbox project." aria-label="Open project"><Icon name="open"/></button>
           <button type="button" className="header-icon-button" onClick={saveProject} title="Save this project as a .pbox file." aria-label="Save project"><Icon name="save"/></button>
+          <span className={`autosave-status ${autosaveStatus}`} role="status" aria-live="polite" title={autosaveStatus === "error" ? "Autosave failed. Browser storage may be full; download a .pbox backup." : autosaveStatus === "saving" ? "Saving project locally…" : "Project saved locally."}>
+            {autosaveStatus === "saving" ? "Saving…" : autosaveStatus === "error" ? "Not saved" : "Saved"}
+          </span>
           <input ref={openInputRef} type="file" accept={PROJECT_EXTENSION} className="visually-hidden" onChange={(e) => e.target.files?.[0] && openProject(e.target.files[0])}/>
         </div>
         <span className="header-rule" aria-hidden="true" />
