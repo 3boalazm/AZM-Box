@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import type { BoxDimensions, DielineLayout, PanelNode } from "../geometry/types";
@@ -6,7 +6,9 @@ import { rect } from "../geometry/shapes";
 import type { PanelTextures } from "../artwork/usePanelTextures";
 import { usePanelTextures } from "../artwork/usePanelTextures";
 import type { ArtworkState } from "../artwork/types";
-import type { SceneSettings, CameraPreset } from "../project/sceneSettings";
+import type { SceneSettings, CameraPreset, CameraPose } from "../project/sceneSettings";
+import { getCameraMouseButtons } from "./cameraControls";
+import type { CameraNavigationMode } from "./cameraControls";
 import Icon from "./Icon";
 
 const OrbitControls = lazy(() => import("@react-three/drei").then(({ OrbitControls }) => ({ default: OrbitControls })));
@@ -126,24 +128,29 @@ function PanelGroup({
 
 type StudioControls = { current: { target: THREE.Vector3; update: () => void } | null };
 
-function CameraRig({ dims, preset, controlsRef }: { dims: BoxDimensions; preset: CameraPreset; controlsRef: StudioControls }) {
+function CameraRig({ dims, preset, cameraPose, resetKey, controlsRef }: { dims: BoxDimensions; preset: CameraPreset; cameraPose: CameraPose | null; resetKey: number; controlsRef: StudioControls }) {
   const { camera } = useThree();
   useEffect(() => {
-    const target = new THREE.Vector3(dims.length / 2, dims.height / 2, -dims.width / 2);
+    const target = cameraPose ? new THREE.Vector3(...cameraPose.target) : new THREE.Vector3(dims.length / 2, dims.height / 2, -dims.width / 2);
     const radius = Math.max(dims.length, dims.width, dims.height) * 2.5;
     const offsets: Record<CameraPreset, [number, number, number]> = {
       front: [0, 0, radius], back: [0, 0, -radius], left: [-radius, 0, 0],
       right: [radius, 0, 0], top: [0, radius, 0], iso: [radius * 0.8, radius * 0.65, radius * 0.9],
     };
-    camera.position.copy(target).add(new THREE.Vector3(...offsets[preset]));
-    camera.up.set(0, 1, 0);
-    if (preset === "top") camera.up.set(0, 0, -1);
+    if (cameraPose) {
+      camera.position.set(...cameraPose.position);
+      camera.up.set(...cameraPose.up);
+    } else {
+      camera.position.copy(target).add(new THREE.Vector3(...offsets[preset]));
+      camera.up.set(0, 1, 0);
+      if (preset === "top") camera.up.set(0, 0, -1);
+    }
     camera.lookAt(target);
     if (controlsRef.current) {
       controlsRef.current.target.copy(target);
       controlsRef.current.update();
     }
-  }, [camera, controlsRef, dims.height, dims.length, dims.width, preset]);
+  }, [camera, cameraPose, controlsRef, dims.height, dims.length, dims.width, preset, resetKey]);
   return null;
 }
 
@@ -179,7 +186,7 @@ interface Fold3DProps {
   showDimensions: boolean;
   foldAmount: number;
   sceneSettings: SceneSettings;
-  onChangeSceneSettings: (settings: SceneSettings) => void;
+  onChangeSceneSettings: React.Dispatch<React.SetStateAction<SceneSettings>>;
   onTransparentExportReady?: (capture: () => Promise<Blob>) => void;
   onSceneReady?: (group: THREE.Group) => void;
   onCanvasReady?: (canvas: HTMLCanvasElement) => void;
@@ -189,19 +196,76 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
   const texturesById = usePanelTextures(layout, artwork, 6, showDimensions);
   const groupRef = useRef<THREE.Group>(null);
   const controlsRef = useRef<StudioControls["current"]>(null);
+  const pendingCameraPose = useRef<CameraPose | null>(null);
+  const cameraPoseTimer = useRef<number | null>(null);
   const [studioOpen, setStudioOpen] = useState(false);
-  const [navigation, setNavigation] = useState<"orbit" | "pan" | "zoom">("orbit");
+  const [navigation, setNavigation] = useState<CameraNavigationMode>("orbit");
+  const [spacePan, setSpacePan] = useState(false);
+  const [cameraResetKey, setCameraResetKey] = useState(0);
   const { background, ambient, keyLight, preset } = sceneSettings;
-  const updateScene = (patch: Partial<SceneSettings>) => onChangeSceneSettings({ ...sceneSettings, ...patch });
+  const mouseButtons = useMemo(() => getCameraMouseButtons(navigation, spacePan), [navigation, spacePan]);
+  const updateScene = (patch: Partial<SceneSettings>) => onChangeSceneSettings((current) => ({ ...current, ...patch }));
+  const reportCameraChange = useCallback((event?: { target?: unknown }) => {
+    const controls = event?.target as { object?: THREE.Camera; target?: THREE.Vector3 } | null;
+    if (!controls?.object || !controls.target) return;
+    pendingCameraPose.current = {
+      position: controls.object.position.toArray() as [number, number, number],
+      target: controls.target.toArray() as [number, number, number],
+      up: controls.object.up.toArray() as [number, number, number],
+    };
+    if (cameraPoseTimer.current !== null) window.clearTimeout(cameraPoseTimer.current);
+    cameraPoseTimer.current = window.setTimeout(() => {
+      const pose = pendingCameraPose.current;
+      if (pose) onChangeSceneSettings((current) => ({ ...current, cameraPose: pose }));
+      cameraPoseTimer.current = null;
+    }, 180);
+  }, [onChangeSceneSettings]);
+  useEffect(() => () => {
+    if (cameraPoseTimer.current !== null) {
+      window.clearTimeout(cameraPoseTimer.current);
+      const pose = pendingCameraPose.current;
+      if (pose) onChangeSceneSettings((current) => ({ ...current, cameraPose: pose }));
+    }
+  }, [onChangeSceneSettings]);
   const presets: { id: CameraPreset; label: string }[] = [
     { id: "front", label: "Front" }, { id: "back", label: "Back" }, { id: "left", label: "Left" },
     { id: "right", label: "Right" }, { id: "top", label: "Top" }, { id: "iso", label: "Iso" },
   ];
+  const applyPreset = useCallback((value: CameraPreset) => {
+    setCameraResetKey((key) => key + 1);
+    onChangeSceneSettings((current) => ({ ...current, preset: value, cameraPose: null }));
+  }, [onChangeSceneSettings]);
   useEffect(() => {
     const closeStudio = () => setStudioOpen(false);
     window.addEventListener("packbox:export-menu-open", closeStudio);
     return () => window.removeEventListener("packbox:export-menu-open", closeStudio);
   }, []);
+
+  useEffect(() => {
+    const isTyping = (target: EventTarget | null) => target instanceof HTMLElement &&
+      (target.isContentEditable || !!target.closest("input,textarea,select,button,a,[role=button]"));
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isTyping(event.target)) return;
+      if (event.code === "Space") {
+        event.preventDefault();
+        setSpacePan(true);
+      } else if (event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        setNavigation("orbit");
+        applyPreset("iso");
+      }
+    };
+    const onKeyUp = (event: KeyboardEvent) => { if (event.code === "Space") setSpacePan(false); };
+    const onBlur = () => setSpacePan(false);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [applyPreset]);
 
   return (
     <div className="fold3d-root">
@@ -214,23 +278,23 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
         <group ref={(g) => { groupRef.current = g; if (g && onSceneReady) onSceneReady(g); }}>
           <PanelGroup node={root} parentW={root.w} parentH={root.h} foldAmount={foldAmount} texturesById={texturesById} />
         </group>
-        <CameraRig dims={dims} preset={preset} controlsRef={controlsRef} />
+        <CameraRig dims={dims} preset={preset} cameraPose={sceneSettings.cameraPose} resetKey={cameraResetKey} controlsRef={controlsRef} />
         <TransparentCapture onReady={onTransparentExportReady} />
         <Suspense fallback={null}>
-          <OrbitControls ref={controlsRef as never} makeDefault enableDamping dampingFactor={0.08} enableRotate={navigation === "orbit"} enablePan={navigation === "pan"} enableZoom={navigation === "zoom" || navigation === "orbit"} minDistance={5} maxDistance={20000} minPolarAngle={0} maxPolarAngle={Math.PI} minAzimuthAngle={-Infinity} maxAzimuthAngle={Infinity} />
+          <OrbitControls ref={controlsRef as never} makeDefault mouseButtons={mouseButtons} onChange={reportCameraChange} enableDamping dampingFactor={0.08} enableRotate enablePan enableZoom minDistance={5} maxDistance={20000} minPolarAngle={0} maxPolarAngle={Math.PI} minAzimuthAngle={-Infinity} maxAzimuthAngle={Infinity} />
         </Suspense>
       </Canvas>
       <nav className="camera-toolbar" aria-label="3D camera navigation">
         {(["orbit", "pan", "zoom"] as const).map((mode) => <button key={mode} type="button" aria-pressed={navigation === mode} className={navigation === mode ? "selected" : ""} title={`${mode[0].toUpperCase()}${mode.slice(1)} mode`} onClick={() => setNavigation(mode)}>{mode[0].toUpperCase() + mode.slice(1)}</button>)}
         <span aria-hidden="true" />
-        <button type="button" onClick={() => { setNavigation("orbit"); updateScene({ preset: "iso" }); }} title="Fit and reset the camera">Fit</button>
+        <button type="button" onClick={() => { setNavigation("orbit"); applyPreset("iso"); }} title="Fit and reset the camera">Fit</button>
       </nav>
       <div className="studio-trigger-wrap">
         <button type="button" className={`studio-trigger${studioOpen ? " active" : ""}`} onClick={() => setStudioOpen((open) => !open)} aria-expanded={studioOpen} aria-controls="studio-settings"><Icon name="cube"/> Scene settings</button>
         {studioOpen && <section id="studio-settings" className="studio-panel" aria-label="3D studio settings">
           <header><strong>3D Studio</strong><button type="button" className="icon-btn" onClick={() => setStudioOpen(false)} aria-label="Close studio controls"><Icon name="close"/></button></header>
           <div className="studio-section"><span className="studio-label">Camera angle</span><div className="studio-angle-grid">
-            {presets.map((item) => <button key={item.id} type="button" className={preset === item.id ? "selected" : ""} onClick={() => updateScene({ preset: item.id })}>{item.label}</button>)}
+            {presets.map((item) => <button key={item.id} type="button" className={preset === item.id ? "selected" : ""} onClick={() => applyPreset(item.id)}>{item.label}</button>)}
           </div></div>
           <div className="studio-section"><span className="studio-label">Background</span><div className="studio-backgrounds">
             {["#e9e6df", "#f5f3ed", "#ffffff", "#dce4ec", "#23252b"].map((color) => <button key={color} type="button" aria-label={`Background ${color}`} title={color} className={background === color ? "selected" : ""} style={{ background: color }} onClick={() => updateScene({ background: color })} />)}
@@ -238,7 +302,7 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
           </div></div>
           <label className="studio-light-slider">Ambient light <b>{ambient.toFixed(1)}</b><input type="range" min="0.1" max="2" step="0.05" value={ambient} onChange={(event) => updateScene({ ambient: Number(event.target.value) })} /></label>
           <label className="studio-light-slider">Key light <b>{keyLight.toFixed(1)}</b><input type="range" min="0.1" max="2" step="0.05" value={keyLight} onChange={(event) => updateScene({ keyLight: Number(event.target.value) })} /></label>
-          <p className="studio-hint">Drag to orbit; scroll to zoom.</p>
+          <p className="studio-hint">Orbit: left-drag · Pan: right-drag or Space + drag · Zoom: scroll or middle-drag · F: fit view</p>
         </section>}
       </div>
     </div>
