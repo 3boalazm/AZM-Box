@@ -18,7 +18,7 @@ import type { SceneSettings } from "./sceneSettings";
  */
 export interface ProjectFile {
   app: "packbox";
-  version: 3;
+  version: 4;
   savedAt: string; // ISO timestamp, informational only
   boxStyleId: BoxStyleId;
   dims: BoxDimensions;
@@ -38,7 +38,7 @@ export function serializeProject(
 ): string {
   const file: ProjectFile = {
     app: "packbox",
-    version: 3,
+    version: 4,
     savedAt: new Date().toISOString(),
     boxStyleId,
     dims,
@@ -84,7 +84,7 @@ function normalizeSide(raw: unknown, fallbackColor: string): SideArtwork {
           typeof l.id === "string" &&
           typeof l.panelId === "string" &&
           (l.kind === "text" ? typeof l.text === "string" : l.kind === "image" && typeof l.src === "string"),
-      )
+      ).map((layer) => ({ ...layer, name: typeof layer.name === "string" ? layer.name.slice(0, 120) : undefined }))
     : [];
 
   return {
@@ -157,8 +157,8 @@ export function parseProject(text: string): { boxStyleId: BoxStyleId; dims: BoxD
     throw new Error("This is not a PackBox project file.");
   }
   const file = raw as Record<string, unknown> & { version?: number; boxStyleId?: BoxStyleId; dims?: BoxDimensions; artwork?: ArtworkState; scene?: SceneSettings; templateMemory?: unknown };
-  if (file.version !== 1 && file.version !== 2 && file.version !== 3) {
-    throw new Error(`Unsupported project version (${String(file.version)}). This app reads versions 1, 2, and 3.`);
+  if (file.version !== 1 && file.version !== 2 && file.version !== 3 && file.version !== 4) {
+    throw new Error(`Unsupported project version (${String(file.version)}). This app reads versions 1, 2, 3, and 4.`);
   }
 
   const style = BOX_STYLES.find((s) => s.id === file.boxStyleId);

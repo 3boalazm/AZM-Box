@@ -17,6 +17,12 @@ interface Props {
   onUpdateSide: (updater: (side: SideArtwork) => SideArtwork) => void;
   showDimensions?: boolean;
   onToggleDimensions?: (v: boolean) => void;
+  showCutLines?: boolean;
+  showFoldLines?: boolean;
+  selectedProductionLayer?: "cut" | "fold" | null;
+  selectedArtworkLayerId?: string | null;
+  onSelectArtworkLayer?: (id: string | null) => void;
+  lockedLayerIds?: string[];
   /**
    * When true the dieline stops intercepting clicks, so the artwork can be
    * selected and dragged from anywhere — including over the panels. When false
@@ -167,7 +173,7 @@ function SheetImageLayer({
   );
 }
 
-function TextLayerNode({ layer, panel, boundsHeight, pxPerMm, selected, onSelect, onChange, onRef }: any) {
+function TextLayerNode({ layer, panel, boundsHeight, pxPerMm, selected, locked, onSelect, onChange, onRef }: any) {
   const shapeRef = useRef<Konva.Text>(null);
   const [x, y] = toStage(...(panelLocalToWorld(panel, [layer.x, layer.y]) as [number, number]), boundsHeight, pxPerMm);
   return (
@@ -182,7 +188,7 @@ function TextLayerNode({ layer, panel, boundsHeight, pxPerMm, selected, onSelect
       rotation={layer.rotation}
       fontSize={layer.fontSize * pxPerMm}
       fill={layer.color}
-      draggable
+      draggable={!locked}
       onClick={onSelect}
       onTap={onSelect}
       stroke={selected ? "#2563eb" : undefined}
@@ -223,7 +229,7 @@ function localFromImageTopLeft(panel: FlatPanel, worldX: number, worldTopY: numb
   return [lx, panel.mirrored ? topLocalY : topLocalY - height];
 }
 
-function ImageLayerNode({ layer, panel, boundsHeight, pxPerMm, selected, onSelect, onChange, onRef }: any) {
+function ImageLayerNode({ layer, panel, boundsHeight, pxPerMm, selected, locked, onSelect, onChange, onRef }: any) {
   const img = useImage(layer.src);
   const shapeRef = useRef<Konva.Image>(null);
   if (!img) return null;
@@ -244,7 +250,7 @@ function ImageLayerNode({ layer, panel, boundsHeight, pxPerMm, selected, onSelec
       width={layer.width * pxPerMm}
       height={layer.height * pxPerMm}
       rotation={layer.rotation}
-      draggable
+      draggable={!locked}
       onClick={onSelect}
       onTap={onSelect}
       stroke={selected ? "#2563eb" : undefined}
@@ -306,10 +312,18 @@ export default function DielineEditor({
   onUpdateSide,
   showDimensions,
   onToggleDimensions,
+  showCutLines = true,
+  showFoldLines = true,
+  selectedProductionLayer = null,
+  selectedArtworkLayerId,
+  onSelectArtworkLayer,
+  lockedLayerIds = [],
   lockTemplate = false,
   onToggleLockTemplate,
 }: Props) {
-  const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
+  const [localSelectedLayerId, setLocalSelectedLayerId] = useState<string | null>(null);
+  const selectedLayerId = selectedArtworkLayerId === undefined ? localSelectedLayerId : selectedArtworkLayerId;
+  const selectLayer = (id: string | null) => { setLocalSelectedLayerId(id); onSelectArtworkLayer?.(id); };
   const [zoom, setZoom] = useState(1);
   const userZoomRef = useRef(false);
   const [shiftHeld, setShiftHeld] = useState(false);
@@ -608,7 +622,7 @@ export default function DielineEditor({
           width={stageW}
           height={stageH}
           fill={side.backgroundColor}
-          onClick={() => setSelectedLayerId(null)}
+          onClick={() => selectLayer(null)}
         />
         {side.sheetImage && Object.keys(side.panelImages).length === 0 && (
           <SheetImageLayer
@@ -616,7 +630,7 @@ export default function DielineEditor({
             layout={layout}
             pxPerMm={pxPerMm}
             selected={selectedLayerId === SHEET_LAYER_ID}
-            onSelect={() => setSelectedLayerId(SHEET_LAYER_ID)}
+            onSelect={() => selectLayer(SHEET_LAYER_ID)}
             onUpdateSide={onUpdateSide}
             onRef={(node) => {
               if (node) shapeRefs.current.set(SHEET_LAYER_ID, node);
@@ -633,22 +647,22 @@ export default function DielineEditor({
 
       {/* Printed lines are drawn above the artwork but never intercept clicks. */}
       <Layer listening={false}>
-        {layout.cutOutline.map((poly, i) => (
+        {showCutLines && layout.cutOutline.map((poly, i) => (
           <Line
             key={`cut-${i}`}
             points={poly.flatMap(([x, y]) => toStage(x, y, layout.bounds.height, pxPerMm))}
-            stroke="#e2231a"
-            strokeWidth={1.1}
+            stroke={selectedProductionLayer === "cut" ? "#f59e0b" : "#e2231a"}
+            strokeWidth={selectedProductionLayer === "cut" ? 2 : 1.1}
             closed={false}
             lineJoin="round"
           />
         ))}
-        {layout.foldLines.map((f, i) => (
+        {showFoldLines && layout.foldLines.map((f, i) => (
           <Line
             key={`fold-${i}`}
             points={[...toStage(f.a[0], f.a[1], layout.bounds.height, pxPerMm), ...toStage(f.b[0], f.b[1], layout.bounds.height, pxPerMm)]}
-            stroke="#1a9e4f"
-            strokeWidth={0.9}
+            stroke={selectedProductionLayer === "fold" ? "#f59e0b" : "#1a9e4f"}
+            strokeWidth={selectedProductionLayer === "fold" ? 1.8 : 0.9}
             dash={[6, 4]}
           />
         ))}
@@ -668,7 +682,8 @@ export default function DielineEditor({
             boundsHeight: layout.bounds.height,
             pxPerMm,
             selected: selectedLayerId === layer.id,
-            onSelect: () => setSelectedLayerId(layer.id),
+            locked: lockedLayerIds.includes(layer.id),
+            onSelect: () => selectLayer(layer.id),
             onChange: updateLayer,
             onRef: (node: Konva.Node | null) => {
               if (node) shapeRefs.current.set(layer.id, node);
@@ -699,7 +714,7 @@ export default function DielineEditor({
               listening={!lockTemplate}
               onClick={() => {
                 onSelectPanel(p.id);
-                setSelectedLayerId(null);
+                selectLayer(null);
               }}
               onTap={() => onSelectPanel(p.id)}
             />
@@ -710,6 +725,7 @@ export default function DielineEditor({
             rotateEnabled adds the rotation handle above the selection. */}
         <Transformer
           ref={transformerRef}
+          enabled={!lockedLayerIds.includes(selectedLayerId ?? "")}
           rotateEnabled
           keepRatio={false}
           enabledAnchors={[
@@ -751,7 +767,7 @@ export default function DielineEditor({
         <div className="image-inspector">
           <div className="image-inspector-head">
             <strong>{selectedImage.label}</strong>
-            <button type="button" className="icon-btn" title="Deselect" onClick={() => setSelectedLayerId(null)}>
+            <button type="button" className="icon-btn" title="Deselect" onClick={() => selectLayer(null)}>
               ×
             </button>
           </div>

@@ -1,6 +1,7 @@
 export type EditorLayer =
   | {
       id: string;
+      name?: string;
       kind: "text";
       panelId: string;
       x: number; // mm, relative to panel origin (bottom-left)
@@ -12,6 +13,7 @@ export type EditorLayer =
     }
   | {
       id: string;
+      name?: string;
       kind: "image";
       panelId: string;
       x: number;

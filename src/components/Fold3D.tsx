@@ -35,7 +35,7 @@ function computeHinge(node: PanelNode, parentW: number, parentH: number): HingeI
   }
 }
 
-function PanelMesh({ node, textures }: { node: PanelNode; textures?: PanelTextures }) {
+function PanelMesh({ node, textures, materialFinish, showOutsideArtwork, showInsideArtwork, onSelectPanel }: { node: PanelNode; textures?: PanelTextures; materialFinish: { roughness: number; metalness: number }; showOutsideArtwork: boolean; showInsideArtwork: boolean; onSelectPanel?: (id: string) => void }) {
   const geometry = useMemo(() => {
     const pts = node.outline ?? rect(node.w, node.h);
     const shape = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)));
@@ -71,22 +71,22 @@ function PanelMesh({ node, textures }: { node: PanelNode; textures?: PanelTextur
 
   return (
     <>
-      <mesh geometry={geometry} visible={node.face !== "glue"}>
+      <mesh geometry={geometry} visible={node.face !== "glue"} castShadow receiveShadow onClick={(event) => { event.stopPropagation(); onSelectPanel?.(node.id); }}>
         <meshStandardMaterial
           key={outsideKey}
-          map={textures?.outside}
-          color={textures ? "#ffffff" : "#d8cdb8"}
+          map={showOutsideArtwork ? textures?.outside : undefined}
+          color={showOutsideArtwork && textures ? "#ffffff" : "#d8cdb8"}
           side={THREE.FrontSide}
-          roughness={0.85}
+          {...materialFinish}
         />
       </mesh>
-      <mesh geometry={geometry}>
+      <mesh geometry={geometry} onClick={(event) => { event.stopPropagation(); onSelectPanel?.(node.id); }}>
         <meshStandardMaterial
           key={insideKey}
-          map={textures?.inside}
-          color={textures ? "#ffffff" : "#efe6d3"}
+          map={showInsideArtwork ? textures?.inside : undefined}
+          color={showInsideArtwork && textures ? "#ffffff" : "#efe6d3"}
           side={THREE.BackSide}
-          roughness={0.9}
+          {...materialFinish}
         />
       </mesh>
     </>
@@ -99,12 +99,20 @@ function PanelGroup({
   parentH,
   foldAmount,
   texturesById,
+  materialFinish,
+  showOutsideArtwork,
+  showInsideArtwork,
+  onSelectPanel,
 }: {
   node: PanelNode;
   parentW: number;
   parentH: number;
   foldAmount: number;
   texturesById: Map<string, PanelTextures>;
+  materialFinish: { roughness: number; metalness: number };
+  showOutsideArtwork: boolean;
+  showInsideArtwork: boolean;
+  onSelectPanel?: (id: string) => void;
 }) {
   const { pivot, axis, baseAngle } = computeHinge(node, parentW, parentH);
   // Remap the global slider into this hinge's own phase window (tube walls close
@@ -118,9 +126,9 @@ function PanelGroup({
 
   return (
     <group position={pivot} rotation={rotation}>
-      <PanelMesh node={node} textures={texturesById.get(node.id)} />
+      <PanelMesh node={node} textures={texturesById.get(node.id)} materialFinish={materialFinish} showOutsideArtwork={showOutsideArtwork} showInsideArtwork={showInsideArtwork} onSelectPanel={onSelectPanel} />
       {node.children.map((child) => (
-        <PanelGroup key={child.id} node={child} parentW={node.w} parentH={node.h} foldAmount={foldAmount} texturesById={texturesById} />
+        <PanelGroup key={child.id} node={child} parentW={node.w} parentH={node.h} foldAmount={foldAmount} texturesById={texturesById} materialFinish={materialFinish} showOutsideArtwork={showOutsideArtwork} showInsideArtwork={showInsideArtwork} onSelectPanel={onSelectPanel} />
       ))}
     </group>
   );
@@ -190,9 +198,10 @@ interface Fold3DProps {
   onTransparentExportReady?: (capture: () => Promise<Blob>) => void;
   onSceneReady?: (group: THREE.Group) => void;
   onCanvasReady?: (canvas: HTMLCanvasElement) => void;
+  onSelectPanel?: (id: string) => void;
 }
 
-export default function Fold3D({ root, dims, layout, artwork, showDimensions, foldAmount, sceneSettings, onChangeSceneSettings, onTransparentExportReady, onSceneReady, onCanvasReady }: Fold3DProps) {
+export default function Fold3D({ root, dims, layout, artwork, showDimensions, foldAmount, sceneSettings, onChangeSceneSettings, onTransparentExportReady, onSceneReady, onCanvasReady, onSelectPanel }: Fold3DProps) {
   const texturesById = usePanelTextures(layout, artwork, 6, showDimensions);
   const groupRef = useRef<THREE.Group>(null);
   const controlsRef = useRef<StudioControls["current"]>(null);
@@ -202,7 +211,9 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
   const [navigation, setNavigation] = useState<CameraNavigationMode>("orbit");
   const [spacePan, setSpacePan] = useState(false);
   const [cameraResetKey, setCameraResetKey] = useState(0);
-  const { background, ambient, keyLight, preset } = sceneSettings;
+  const { background, ambient, preset, lights, floor, shadows, material } = sceneSettings;
+  const materialFinish = material === "metallic" ? { roughness: 0.32, metalness: 0.55 } : material === "satin" ? { roughness: 0.5, metalness: 0.08 } : material === "matte" ? { roughness: 0.98, metalness: 0 } : { roughness: 0.85, metalness: 0 };
+  const environmentScale = sceneSettings.environment === "soft" ? 0.82 : sceneSettings.environment === "neutral" ? 0.95 : 1;
   const mouseButtons = useMemo(() => getCameraMouseButtons(navigation, spacePan), [navigation, spacePan]);
   const updateScene = (patch: Partial<SceneSettings>) => onChangeSceneSettings((current) => ({ ...current, ...patch }));
   const reportCameraChange = useCallback((event?: { target?: unknown }) => {
@@ -269,14 +280,19 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
 
   return (
     <div className="fold3d-root">
-      <Canvas className="fold3d-canvas" dpr={[1, 2]} gl={{ preserveDrawingBuffer: true, antialias: true, alpha: true }} camera={{ position: [260, 220, 320], fov: 40, near: 1, far: 5000 }} onCreated={({ gl }) => onCanvasReady?.(gl.domElement)}>
-        <color attach="background" args={[background]} />
-        <ambientLight intensity={ambient} />
-        <directionalLight position={[300, 400, 200]} intensity={keyLight} />
-        <directionalLight position={[-200, 150, -300]} intensity={keyLight * 0.45} />
-        <directionalLight position={[0, -250, 100]} intensity={keyLight * 0.25} />
+      <Canvas className="fold3d-canvas" dpr={[1, 2]} gl={{ preserveDrawingBuffer: true, antialias: true, alpha: true }} shadows={shadows} camera={{ position: [260, 220, 320], fov: 40, near: 1, far: 5000 }} onCreated={({ gl }) => onCanvasReady?.(gl.domElement)}>
+        {!sceneSettings.transparentBackground && <color attach="background" args={[background]} />}
+        <ambientLight intensity={ambient * environmentScale} />
+        {(["key", "fill", "rim"] as const).map((name) => {
+          const light = lights[name];
+          return light.enabled ? <directionalLight key={name} position={light.position} color={light.color} intensity={light.intensity * (name === "key" ? sceneSettings.keyLight : 1) * environmentScale} castShadow={shadows && name === "key"} shadow-mapSize-width={1024} shadow-mapSize-height={1024} /> : null;
+        })}
+        {floor.visible && <mesh rotation={[-Math.PI / 2, 0, 0]} position={[dims.length / 2, -2, -dims.width / 2]} receiveShadow>
+          <planeGeometry args={[floor.size, floor.size]} />
+          <meshStandardMaterial color={floor.color} roughness={0.95} metalness={0} />
+        </mesh>}
         <group ref={(g) => { groupRef.current = g; if (g && onSceneReady) onSceneReady(g); }}>
-          <PanelGroup node={root} parentW={root.w} parentH={root.h} foldAmount={foldAmount} texturesById={texturesById} />
+          <PanelGroup node={root} parentW={root.w} parentH={root.h} foldAmount={foldAmount} texturesById={texturesById} materialFinish={materialFinish} showOutsideArtwork={sceneSettings.showOutsideArtwork !== false} showInsideArtwork={sceneSettings.showInsideArtwork !== false} onSelectPanel={onSelectPanel} />
         </group>
         <CameraRig dims={dims} preset={preset} cameraPose={sceneSettings.cameraPose} resetKey={cameraResetKey} controlsRef={controlsRef} />
         <TransparentCapture onReady={onTransparentExportReady} />
@@ -300,9 +316,19 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
             {["#e9e6df", "#f5f3ed", "#ffffff", "#dce4ec", "#23252b"].map((color) => <button key={color} type="button" aria-label={`Background ${color}`} title={color} className={background === color ? "selected" : ""} style={{ background: color }} onClick={() => updateScene({ background: color })} />)}
             <input type="color" aria-label="Custom background color" value={background} onChange={(event) => updateScene({ background: event.target.value })} />
           </div></div>
-          <label className="studio-light-slider">Ambient light <b>{ambient.toFixed(1)}</b><input type="range" min="0.1" max="2" step="0.05" value={ambient} onChange={(event) => updateScene({ ambient: Number(event.target.value) })} /></label>
-          <label className="studio-light-slider">Key light <b>{keyLight.toFixed(1)}</b><input type="range" min="0.1" max="2" step="0.05" value={keyLight} onChange={(event) => updateScene({ keyLight: Number(event.target.value) })} /></label>
-          <p className="studio-hint">Orbit: left-drag · Pan: right-drag or Space + drag · Zoom: scroll or middle-drag · F: fit view</p>
+          <label className="studio-light-slider">Ambient <b>{ambient.toFixed(1)}</b><input type="range" min="0" max="3" step="0.05" value={ambient} onChange={(event) => updateScene({ ambient: Number(event.target.value) })} /></label>
+          <div className="studio-section"><span className="studio-label">Lights</span>{(["key", "fill", "rim"] as const).map((name) => <div className="studio-light-control" key={name}>
+            <label><input type="checkbox" checked={lights[name].enabled} onChange={(event) => onChangeSceneSettings((current) => ({ ...current, lights: { ...current.lights, [name]: { ...current.lights[name], enabled: event.target.checked } } }))}/><span>{name[0].toUpperCase() + name.slice(1)}</span></label>
+            <input aria-label={`${name} light intensity`} type="range" min="0" max="3" step="0.05" value={lights[name].intensity} onChange={(event) => onChangeSceneSettings((current) => ({ ...current, lights: { ...current.lights, [name]: { ...current.lights[name], intensity: Number(event.target.value) } } }))}/>
+            <input type="color" aria-label={`${name} light color`} value={lights[name].color} onChange={(event) => onChangeSceneSettings((current) => ({ ...current, lights: { ...current.lights, [name]: { ...current.lights[name], color: event.target.value } } }))}/>
+          </div>)}</div>
+          <div className="studio-section"><span className="studio-label">Surface & floor</span>
+            <label className="studio-select-label">Appearance <select value={material} onChange={(event) => updateScene({ material: event.target.value as SceneSettings["material"] })}><option value="board">Folding board</option><option value="matte">Matte</option><option value="satin">Satin</option><option value="metallic">Metallic</option></select></label>
+            <label className="studio-check-row"><input type="checkbox" checked={floor.visible} onChange={(event) => onChangeSceneSettings((current) => ({ ...current, floor: { ...current.floor, visible: event.target.checked } }))}/> Ground plane</label>
+            <label className="studio-check-row"><input type="checkbox" checked={shadows} onChange={(event) => updateScene({ shadows: event.target.checked })}/> Shadows</label>
+            <label className="studio-check-row"><input type="checkbox" checked={sceneSettings.transparentBackground} onChange={(event) => updateScene({ transparentBackground: event.target.checked })}/> Transparent background</label>
+          </div>
+          <p className="studio-hint">Surface appearances are visual previews only—not color proof or a manufacturing guarantee. Orbit: drag · Pan: right-drag or Space + drag · Zoom: scroll · F: fit view.</p>
         </section>}
       </div>
     </div>
