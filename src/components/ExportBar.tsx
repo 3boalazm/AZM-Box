@@ -1,13 +1,10 @@
 import { useState } from "react";
-import { jsPDF } from "jspdf";
 import type { DielineLayout } from "../geometry/types";
 import type { ArtworkState, SideArtwork } from "../artwork/types";
 import { sideHasContent } from "../artwork/types";
 import { renderFullSheetCanvas } from "../artwork/renderPanel";
 import { generateDielineSVG } from "../geometry/svgExport";
 import { generateDielineDXF } from "../geometry/dxfExport";
-import { exportDielinePDF } from "../geometry/pdfExport";
-import { exportGLB } from "../geometry/glbExport";
 import { downloadBlob } from "../lib/files";
 import type * as THREE from "three";
 
@@ -77,6 +74,7 @@ export default function ExportBar({ layout, artwork, title, sceneRef, sceneCanva
 
   const exportPDF = () =>
     run("pdf", async () => {
+      const { exportDielinePDF } = await import("../geometry/pdfExport");
       // Both faces are always rendered and always exported — the inside sheet is
       // needed for print regardless of whether artwork has been added to it yet.
       const outsideCanvas = await renderFullSheetCanvas(layout, forPrint(artwork.outside), 8);
@@ -98,6 +96,7 @@ export default function ExportBar({ layout, artwork, title, sceneRef, sceneCanva
 
   const exportModel = () =>
     run("glb", async () => {
+      const { exportGLB } = await import("../geometry/glbExport");
       if (!sceneRef.current) {
         alert("Open the 3D tab first so the model is ready to export.");
         return;
@@ -117,6 +116,7 @@ export default function ExportBar({ layout, artwork, title, sceneRef, sceneCanva
   });
 
   const exportScenePDF = () => run("scene-pdf", async () => {
+    const { jsPDF } = await import("jspdf");
     const canvas = sceneCanvasRef.current;
     if (!canvas) throw new Error("Open the 3D preview first so its canvas is ready.");
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });

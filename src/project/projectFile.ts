@@ -41,6 +41,19 @@ function isFiniteNumber(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v);
 }
 
+const MAX_PROJECT_DIMENSION_MM = 5000;
+function validateDimension(value: unknown, label: string, min = 0) {
+  if (value === undefined) return;
+  if (!isFiniteNumber(value) || value < min || value > MAX_PROJECT_DIMENSION_MM) {
+    throw new Error(`${label} must be between ${min} and ${MAX_PROJECT_DIMENSION_MM} mm.`);
+  }
+}
+function validateDimensionMap(value: unknown, label: string, min = 0) {
+  if (value === undefined) return;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error(`${label} must be an object of millimeter values.`);
+  for (const [key, entry] of Object.entries(value)) validateDimension(entry, `${label}.${key}`, min);
+}
+
 /**
  * Re-validates a side's artwork against the CURRENT shape of SideArtwork,
  * merging over emptySide() defaults. This is what makes older project files
@@ -111,6 +124,24 @@ export function parseProject(text: string): { boxStyleId: BoxStyleId; dims: BoxD
   const d = (typeof file.dims === "object" && file.dims !== null ? file.dims : {}) as Partial<BoxDimensions>;
   if (!isFiniteNumber(d.length) || !isFiniteNumber(d.width) || !isFiniteNumber(d.height)) {
     throw new Error("The project's box dimensions are missing or invalid.");
+  }
+  for (const [key, value] of [["length", d.length], ["width", d.width], ["height", d.height]] as const) {
+    validateDimension(value, `Box ${key}`, 1);
+  }
+  validateDimension(d.endFlapLeft, "Left end flap depth");
+  validateDimension(d.endFlapRight, "Right end flap depth");
+  validateDimension(d.lidDepth, "Lid depth", 1);
+  validateDimensionMap(d.flaps, "Flap depths");
+  validateDimensionMap(d.flapWidths, "Flap widths", 1);
+  if (d.flapEdges !== undefined) {
+    if (typeof d.flapEdges !== "object" || d.flapEdges === null || Array.isArray(d.flapEdges)) throw new Error("Flap edge depths must be an object.");
+    const edges = d.flapEdges as Record<string, unknown>;
+    for (const edge of ["top", "bottom"]) validateDimensionMap(edges[edge], `${edge} flap depths`);
+  }
+  if (d.flapShapes !== undefined) {
+    if (typeof d.flapShapes !== "object" || d.flapShapes === null || Array.isArray(d.flapShapes)) throw new Error("Flap shapes must be an object.");
+    const validShapes = new Set(["default", "straight", "dust", "tuck", "lock"]);
+    if (Object.values(d.flapShapes).some((shape) => !validShapes.has(String(shape)))) throw new Error("The project contains an unknown flap shape.");
   }
   const dims: BoxDimensions = {
     ...style.defaultDimensions,

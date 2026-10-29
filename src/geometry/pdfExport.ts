@@ -71,7 +71,7 @@ export async function exportDielinePDF(layout: DielineLayout, opts: PdfExportOpt
   const marginMm = dimensions ? DIMENSION_MARGIN_MM : MARGIN_MM;
   const bleedMm = dimensions ? DIMENSION_BLEED_MM : BLEED_MM;
   const plan = planA4Pages(layout.bounds, marginMm);
-  const pageFormat: "a4" = "a4";
+  const pageFormat = "a4" as const;
   const pageOrientation = plan.orientation === "landscape" ? "l" : "p";
   const pageH = pageOrientation === "l" ? 210 : 297;
 

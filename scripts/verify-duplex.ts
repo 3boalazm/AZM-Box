@@ -13,7 +13,8 @@ import { computeFlatLayout } from "../src/geometry/layout";
 import { generateDielineSVG } from "../src/geometry/svgExport";
 import { planA4Pages } from "../src/geometry/paginate";
 
-const MARGIN = 10, BLEED = 6;
+const MARGIN = 10;
+const BLEED = 6;
 
 /** Pulls every coordinate out of the cut-lines group of an SVG string. */
 function cutPoints(svg: string): [number, number][] {
@@ -42,14 +43,6 @@ for (const style of BOX_STYLES) {
 
   const outSvg = generateDielineSVG(layout, common);
   const inSvg = generateDielineSVG(layout, { ...common, mirror: plan.orientation === "landscape" ? "y" : "x" });
-
-  // Where the tile is placed on the physical page.
-  const offX = plan.singlePage ? MARGIN + (plan.usable.width - tile.width) / 2 : MARGIN;
-  const offY = plan.singlePage ? MARGIN + (plan.usable.height - tile.height) / 2 : MARGIN;
-  const pageW = plan.orientation === "landscape" ? 297 : 210;
-  const pageH = plan.orientation === "landscape" ? 210 : 297;
-  // viewBox units map 1:1 to mm; translate viewBox space -> page space.
-  const toPage = (p: [number, number]): [number, number] => [p[0] - view.x + (offX - BLEED), p[1] - (plan.orientation && 0) + (offY - BLEED) - (view.y - view.y)];
 
   const outPts = cutPoints(outSvg).map((p) => applyMirror(outSvg, p));
   const inPts = cutPoints(inSvg).map((p) => applyMirror(inSvg, p));

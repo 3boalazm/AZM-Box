@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
-import type { BoxDimensions, PanelNode } from "../geometry/types";
+import type { BoxDimensions, DielineLayout, PanelNode } from "../geometry/types";
 import { rect } from "../geometry/shapes";
 import type { PanelTextures } from "../artwork/usePanelTextures";
+import { usePanelTextures } from "../artwork/usePanelTextures";
+import type { ArtworkState } from "../artwork/types";
+
+const OrbitControls = lazy(() => import("@react-three/drei").then(({ OrbitControls }) => ({ default: OrbitControls })));
 
 interface HingeInfo {
   pivot: [number, number, number];
@@ -146,13 +149,16 @@ function CameraRig({ dims, preset, controlsRef }: { dims: BoxDimensions; preset:
 interface Fold3DProps {
   root: PanelNode;
   dims: BoxDimensions;
+  layout: DielineLayout;
+  artwork: ArtworkState;
+  showDimensions: boolean;
   foldAmount: number;
-  texturesById: Map<string, PanelTextures>;
   onSceneReady?: (group: THREE.Group) => void;
   onCanvasReady?: (canvas: HTMLCanvasElement) => void;
 }
 
-export default function Fold3D({ root, dims, foldAmount, texturesById, onSceneReady, onCanvasReady }: Fold3DProps) {
+export default function Fold3D({ root, dims, layout, artwork, showDimensions, foldAmount, onSceneReady, onCanvasReady }: Fold3DProps) {
+  const texturesById = usePanelTextures(layout, artwork, 6, showDimensions);
   const groupRef = useRef<THREE.Group>(null);
   const controlsRef = useRef<StudioControls["current"]>(null);
   const [studioOpen, setStudioOpen] = useState(false);
@@ -177,7 +183,9 @@ export default function Fold3D({ root, dims, foldAmount, texturesById, onSceneRe
           <PanelGroup node={root} parentW={root.w} parentH={root.h} foldAmount={foldAmount} texturesById={texturesById} />
         </group>
         <CameraRig dims={dims} preset={preset} controlsRef={controlsRef} />
-        <OrbitControls ref={controlsRef as never} makeDefault enableDamping dampingFactor={0.08} minDistance={5} maxDistance={20000} minPolarAngle={0} maxPolarAngle={Math.PI} minAzimuthAngle={-Infinity} maxAzimuthAngle={Infinity} />
+        <Suspense fallback={null}>
+          <OrbitControls ref={controlsRef as never} makeDefault enableDamping dampingFactor={0.08} minDistance={5} maxDistance={20000} minPolarAngle={0} maxPolarAngle={Math.PI} minAzimuthAngle={-Infinity} maxAzimuthAngle={Infinity} />
+        </Suspense>
       </Canvas>
       <div className="studio-trigger-wrap">
         <button type="button" className={`studio-trigger${studioOpen ? " active" : ""}`} onClick={() => setStudioOpen((open) => !open)} aria-expanded={studioOpen}>✦ Studio</button>

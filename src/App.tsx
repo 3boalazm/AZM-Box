@@ -1,18 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type * as THREE from "three";
 import "./App.css";
 import Sidebar from "./components/Sidebar";
 import ArtworkPanel from "./components/ArtworkPanel";
-import DielineEditor from "./components/DielineEditor";
-import Fold3D from "./components/Fold3D";
 import ExportBar from "./components/ExportBar";
 import { BOX_STYLES, getBoxStyle } from "./geometry/boxBuilders";
 import { computeFlatLayout } from "./geometry/layout";
 import type { BoxDimensions, BoxStyleId } from "./geometry/types";
 import { emptyArtwork } from "./artwork/types";
-import { usePanelTextures } from "./artwork/usePanelTextures";
 import { serializeProject, parseProject, PROJECT_EXTENSION } from "./project/projectFile";
 import { downloadBlob } from "./lib/files";
+import { preserveSheetRegistration } from "./artwork/rootAnchoring";
+
+const Fold3D = lazy(() => import("./components/Fold3D"));
+const DielineEditor = lazy(() => import("./components/DielineEditor"));
 
 export default function App() {
   const [boxStyleId, setBoxStyleId] = useState<BoxStyleId>("tuck-end");
@@ -27,6 +28,7 @@ export default function App() {
 
   const sceneRef = useRef<THREE.Group | null>(null);
   const sceneCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const skipNextArtworkAnchorAdjust = useRef(false);
   const foldAnimationRef = useRef<number | null>(null);
 
   const animateFoldTo = (target: number) => {
@@ -56,7 +58,35 @@ export default function App() {
 
   const root = useMemo(() => getBoxStyle(boxStyleId).build(dims), [boxStyleId, dims]);
   const layout = useMemo(() => computeFlatLayout(root), [root]);
-  const texturesById = usePanelTextures(layout, artwork, 6, showDimensions);
+
+  // Keep the uploaded full-sheet artwork registered to the root/body panel when
+  // dieline bounds change (for example, when a flap gets deeper). The layout
+  // recenters itself as its extents grow; without this offset correction the
+  // artwork appears to slide even though its own size did not change.
+  const rootPanel = layout.panels[0];
+  const previousRootAnchor = useRef({ x: rootPanel.min[0], y: rootPanel.max[1] });
+  useEffect(() => {
+    const previous = previousRootAnchor.current;
+    const next = { x: rootPanel.min[0], y: rootPanel.max[1] };
+    previousRootAnchor.current = next;
+    if (skipNextArtworkAnchorAdjust.current) {
+      skipNextArtworkAnchorAdjust.current = false;
+      return;
+    }
+    const dx = next.x - previous.x;
+    const dy = next.y - previous.y;
+    if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) return;
+    setArtwork((current) => ({
+      ...current,
+      outside: { ...current.outside, sheetOffset: preserveSheetRegistration(current.outside.sheetOffset, previous, next) },
+      inside: { ...current.inside, sheetOffset: preserveSheetRegistration(current.inside.sheetOffset, previous, next) },
+    }));
+  }, [layout, rootPanel.max, rootPanel.min]);
+  useEffect(() => {
+    // If a project/style reset changed artwork but not the geometry anchor,
+    // release the one-shot skip so the next real flap edit is still compensated.
+    if (skipNextArtworkAnchorAdjust.current) skipNextArtworkAnchorAdjust.current = false;
+  }, [boxStyleId, dims]);
 
   // Clicking a panel flashes the sidebar control that governs it. The nonce makes
   // clicking the SAME panel again re-trigger the animation (a changing value is
@@ -70,6 +100,7 @@ export default function App() {
   };
 
   const handleChangeStyle = (id: BoxStyleId) => {
+    skipNextArtworkAnchorAdjust.current = true;
     setBoxStyleId(id);
     setDims({ ...getBoxStyle(id).defaultDimensions });
     setSelectedPanelId(null);
@@ -108,6 +139,7 @@ export default function App() {
 
   const applySnapshot = (snap: Snapshot) => {
     restoring.current = true;
+    skipNextArtworkAnchorAdjust.current = true;
     setBoxStyleId(snap.boxStyleId);
     setDims(snap.dims);
     setArtwork(snap.artwork);
@@ -153,6 +185,7 @@ export default function App() {
 
   const newProject = () => {
     if (!window.confirm("Start a new project? The current design is discarded (you can still get it back with Undo).")) return;
+    skipNextArtworkAnchorAdjust.current = true;
     setBoxStyleId(BOX_STYLES[0].id);
     setDims({ ...BOX_STYLES[0].defaultDimensions });
     setArtwork(emptyArtwork());
@@ -171,6 +204,7 @@ export default function App() {
     try {
       const text = await file.text();
       const loaded = parseProject(text);
+      skipNextArtworkAnchorAdjust.current = true;
       setBoxStyleId(loaded.boxStyleId);
       setDims(loaded.dims);
       setArtwork(loaded.artwork);
@@ -280,6 +314,7 @@ export default function App() {
         <main className="stage">
           {activeTab === "2d" ? (
             <div className="stage-scroll">
+              <Suspense fallback={<div className="stage-loading">Loading 2D editor…</div>}>
               <DielineEditor
                 layout={layout}
                 side={artwork[activeSide]}
@@ -292,10 +327,13 @@ export default function App() {
                 lockTemplate={lockTemplate}
                 onToggleLockTemplate={setLockTemplate}
               />
+              </Suspense>
             </div>
           ) : (
             <div className="stage-3d">
-              <Fold3D root={root} dims={dims} foldAmount={foldAmount} texturesById={texturesById} onSceneReady={(g) => (sceneRef.current = g)} onCanvasReady={(canvas) => (sceneCanvasRef.current = canvas)} />
+              <Suspense fallback={<div className="stage-loading">Loading 3D studio…</div>}>
+                <Fold3D root={root} dims={dims} layout={layout} artwork={artwork} showDimensions={showDimensions} foldAmount={foldAmount} onSceneReady={(g) => (sceneRef.current = g)} onCanvasReady={(canvas) => (sceneCanvasRef.current = canvas)} />
+              </Suspense>
               <div className="fold-slider" aria-label="3D box folding controls">
                 <div className="fold-progress">
                   <strong>Box folding</strong>
