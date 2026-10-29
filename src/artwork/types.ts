@@ -27,6 +27,7 @@ export type EditorLayer =
 export interface SideArtwork {
   /** A single full-sheet artwork image, positioned/sized independently of the dieline. */
   sheetImage?: string;
+  sheetImageName?: string;
   /** Bottom-left corner of the image, in sheet mm (Y-up) — draggable on the canvas. */
   sheetOffset: { x: number; y: number };
   /** Current displayed size, in mm — defaults to the full sheet bounds on upload,
@@ -37,6 +38,7 @@ export interface SideArtwork {
   sheetRotation: number;
   /** Per-panel images, keyed by panel id — takes precedence over the sheet for that panel. */
   panelImages: Record<string, string>;
+  panelImageNames: Record<string, string>;
   /** Freeform text/logo layers added in the built-in editor. */
   layers: EditorLayer[];
   backgroundColor: string;
@@ -50,11 +52,13 @@ export interface ArtworkState {
 export function emptySide(defaultColor: string): SideArtwork {
   return {
     sheetImage: undefined,
+    sheetImageName: undefined,
     sheetOffset: { x: 0, y: 0 },
     sheetWidth: 100,
     sheetHeight: 100,
     sheetRotation: 0,
     panelImages: {},
+    panelImageNames: {},
     layers: [],
     backgroundColor: defaultColor,
   };

@@ -23,6 +23,7 @@ interface Props {
   selectedArtworkLayerId?: string | null;
   onSelectArtworkLayer?: (id: string | null) => void;
   lockedLayerIds?: string[];
+  artworkSide?: "outside" | "inside";
   /**
    * When true the dieline stops intercepting clicks, so the artwork can be
    * selected and dragged from anywhere — including over the panels. When false
@@ -107,6 +108,7 @@ function SheetImageLayer({
   layout,
   pxPerMm,
   selected,
+  locked,
   onSelect,
   onUpdateSide,
   onRef,
@@ -115,6 +117,7 @@ function SheetImageLayer({
   layout: DielineLayout;
   pxPerMm: number;
   selected: boolean;
+  locked: boolean;
   onSelect: () => void;
   onUpdateSide: (updater: (side: SideArtwork) => SideArtwork) => void;
   onRef: (node: Konva.Node | null) => void;
@@ -140,17 +143,19 @@ function SheetImageLayer({
       width={w}
       height={h}
       rotation={side.sheetRotation}
-      draggable
+      draggable={!locked}
       onClick={onSelect}
       onTap={onSelect}
       stroke={selected ? "#2563eb" : undefined}
       strokeWidth={selected ? 1 : 0}
       onDragEnd={(e) => {
+        if (locked) return;
         const nx = e.target.x() / pxPerMm;
         const ny = layout.bounds.height - e.target.y() / pxPerMm - side.sheetHeight;
         onUpdateSide((s) => ({ ...s, sheetOffset: { x: nx, y: ny } }));
       }}
       onTransformEnd={() => {
+        if (locked) return;
         const node = shapeRef.current;
         if (!node) return;
         const scaleX = node.scaleX();
@@ -318,6 +323,7 @@ export default function DielineEditor({
   selectedArtworkLayerId,
   onSelectArtworkLayer,
   lockedLayerIds = [],
+  artworkSide = "outside",
   lockTemplate = false,
   onToggleLockTemplate,
 }: Props) {
@@ -376,6 +382,7 @@ export default function DielineEditor({
   const panelById = Object.fromEntries(layout.panels.map((p) => [p.id, p]));
 
   const updateLayer = (updated: EditorLayer) => {
+    if (lockedLayerIds.includes(`layer:${artworkSide}:${updated.id}`) || lockedLayerIds.includes(updated.id)) return;
     onUpdateSide((s) => ({ ...s, layers: s.layers.map((l) => (l.id === updated.id ? updated : l)) }));
   };
 
@@ -465,32 +472,38 @@ export default function DielineEditor({
   const selectedImage = (() => {
     if (selectedLayerId === SHEET_LAYER_ID && side.sheetImage) {
       return {
-        label: "Sheet artwork",
+        label: side.sheetImageName || "Sheet artwork",
+        locked: lockedLayerIds.includes(`sheet:${artworkSide}`),
         width: side.sheetWidth,
         height: side.sheetHeight,
         rotation: side.sheetRotation,
-        set: (v: { width?: number; height?: number; rotation?: number }) =>
+        set: (v: { width?: number; height?: number; rotation?: number }) => {
+          if (lockedLayerIds.includes(`sheet:${artworkSide}`)) return;
           onUpdateSide((s) => ({
             ...s,
             sheetWidth: v.width ?? s.sheetWidth,
             sheetHeight: v.height ?? s.sheetHeight,
             sheetRotation: v.rotation ?? s.sheetRotation,
-          })),
-        reset: () =>
+          }));
+        },
+        reset: () => {
+          if (lockedLayerIds.includes(`sheet:${artworkSide}`)) return;
           onUpdateSide((s) => ({
             ...s,
             sheetOffset: { x: 0, y: 0 },
             sheetWidth: layout.bounds.width,
             sheetHeight: layout.bounds.height,
             sheetRotation: 0,
-          })),
+          }));
+        },
       };
     }
     const layer = side.layers.find((l) => l.id === selectedLayerId);
     if (layer && layer.kind === "image") {
       const panel = panelById[layer.panelId];
       return {
-        label: "Logo / image",
+        label: layer.name || "Logo / image",
+        locked: lockedLayerIds.includes(`layer:${artworkSide}:${layer.id}`) || lockedLayerIds.includes(layer.id),
         width: layer.width,
         height: layer.height,
         rotation: layer.rotation,
@@ -630,6 +643,7 @@ export default function DielineEditor({
             layout={layout}
             pxPerMm={pxPerMm}
             selected={selectedLayerId === SHEET_LAYER_ID}
+            locked={lockedLayerIds.includes(`sheet:${artworkSide}`)}
             onSelect={() => selectLayer(SHEET_LAYER_ID)}
             onUpdateSide={onUpdateSide}
             onRef={(node) => {
@@ -682,7 +696,7 @@ export default function DielineEditor({
             boundsHeight: layout.bounds.height,
             pxPerMm,
             selected: selectedLayerId === layer.id,
-            locked: lockedLayerIds.includes(layer.id),
+            locked: lockedLayerIds.includes(`layer:${artworkSide}:${layer.id}`) || lockedLayerIds.includes(layer.id),
             onSelect: () => selectLayer(layer.id),
             onChange: updateLayer,
             onRef: (node: Konva.Node | null) => {
@@ -725,7 +739,9 @@ export default function DielineEditor({
             rotateEnabled adds the rotation handle above the selection. */}
         <Transformer
           ref={transformerRef}
-          enabled={!lockedLayerIds.includes(selectedLayerId ?? "")}
+          enabled={selectedLayerId === SHEET_LAYER_ID
+            ? !lockedLayerIds.includes(`sheet:${artworkSide}`)
+            : !lockedLayerIds.includes(`layer:${artworkSide}:${selectedLayerId ?? ""}`) && !lockedLayerIds.includes(selectedLayerId ?? "")}
           rotateEnabled
           keepRatio={false}
           enabledAnchors={[
@@ -778,6 +794,7 @@ export default function DielineEditor({
             </span>
             <input
               type="range"
+              disabled={selectedImage.locked}
               min={5}
               max={Math.max(400, Math.round(layout.bounds.width * 2))}
               step={1}
@@ -792,6 +809,7 @@ export default function DielineEditor({
             </span>
             <input
               type="range"
+              disabled={selectedImage.locked}
               min={5}
               max={Math.max(400, Math.round(layout.bounds.height * 2))}
               step={1}
@@ -806,6 +824,7 @@ export default function DielineEditor({
             </span>
             <input
               type="range"
+              disabled={selectedImage.locked}
               min={-180}
               max={180}
               step={1}
@@ -815,10 +834,10 @@ export default function DielineEditor({
           </label>
 
           <div className="button-row">
-            <button type="button" className="secondary" onClick={() => selectedImage.set({ rotation: 0 })}>
+            <button type="button" className="secondary" disabled={selectedImage.locked} onClick={() => selectedImage.set({ rotation: 0 })}>
               Straighten
             </button>
-            <button type="button" className="secondary" onClick={selectedImage.reset}>
+            <button type="button" className="secondary" disabled={selectedImage.locked} onClick={selectedImage.reset}>
               Reset image
             </button>
           </div>

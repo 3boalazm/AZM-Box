@@ -291,7 +291,7 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
           <planeGeometry args={[floor.size, floor.size]} />
           <meshStandardMaterial color={floor.color} roughness={0.95} metalness={0} />
         </mesh>}
-        <group ref={(g) => { groupRef.current = g; if (g && onSceneReady) onSceneReady(g); }}>
+        <group visible={sceneSettings.showModel} ref={(g) => { groupRef.current = g; if (g && onSceneReady) onSceneReady(g); }}>
           <PanelGroup node={root} parentW={root.w} parentH={root.h} foldAmount={foldAmount} texturesById={texturesById} materialFinish={materialFinish} showOutsideArtwork={sceneSettings.showOutsideArtwork !== false} showInsideArtwork={sceneSettings.showInsideArtwork !== false} onSelectPanel={onSelectPanel} />
         </group>
         <CameraRig dims={dims} preset={preset} cameraPose={sceneSettings.cameraPose} resetKey={cameraResetKey} controlsRef={controlsRef} />

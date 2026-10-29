@@ -26,6 +26,7 @@ export interface SceneSettings {
   floor: { visible: boolean; color: string; size: number };
   shadows: boolean;
   material: MaterialPreset;
+  showModel: boolean;
   showOutsideArtwork: boolean;
   showInsideArtwork: boolean;
   showCutLines: boolean;
@@ -51,11 +52,12 @@ export const DEFAULT_SCENE_SETTINGS: SceneSettings = {
   floor: { visible: true, color: "#d9d6cf", size: 2400 },
   shadows: true,
   material: "board",
+  showModel: true,
   showOutsideArtwork: true,
   showInsideArtwork: true,
   showCutLines: true,
   showFoldLines: true,
-  showProductionDimensions: true,
+  showProductionDimensions: false,
   hiddenLayerIds: [],
   lockedLayerIds: [],
   preset: "iso",
@@ -100,11 +102,12 @@ export function normalizeSceneSettings(value: unknown): SceneSettings {
     },
     shadows: typeof input.shadows === "boolean" ? input.shadows : true,
     material: validMaterials.includes(input.material as MaterialPreset) ? input.material as MaterialPreset : "board",
+    showModel: typeof input.showModel === "boolean" ? input.showModel : true,
     showOutsideArtwork: typeof input.showOutsideArtwork === "boolean" ? input.showOutsideArtwork : true,
     showInsideArtwork: typeof input.showInsideArtwork === "boolean" ? input.showInsideArtwork : true,
     showCutLines: typeof input.showCutLines === "boolean" ? input.showCutLines : true,
     showFoldLines: typeof input.showFoldLines === "boolean" ? input.showFoldLines : true,
-    showProductionDimensions: typeof input.showProductionDimensions === "boolean" ? input.showProductionDimensions : true,
+    showProductionDimensions: typeof input.showProductionDimensions === "boolean" ? input.showProductionDimensions : false,
     hiddenLayerIds: Array.isArray(input.hiddenLayerIds) ? input.hiddenLayerIds.filter((id): id is string => typeof id === "string").slice(0, 5000) : [],
     lockedLayerIds: Array.isArray(input.lockedLayerIds) ? input.lockedLayerIds.filter((id): id is string => typeof id === "string").slice(0, 5000) : [],
     preset: validPresets.includes(input.preset as CameraPreset) ? input.preset as CameraPreset : DEFAULT_SCENE_SETTINGS.preset,
