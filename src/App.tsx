@@ -113,7 +113,13 @@ export default function App() {
     // Geometry dimensions are user intent and transfer safely between templates;
     // flap and closure values are style-specific, so seed those from the new style.
     setDims(transferDimensionsToTemplate(dims, defaults));
+    setSceneSettings((current) => ({ ...current, cameraPose: null }));
     setSelectedPanelId(null);
+  };
+
+  const handleChangeDimensions = (next: BoxDimensions) => {
+    setDims(next);
+    setSceneSettings((current) => ({ ...current, cameraPose: null }));
   };
 
   // ---- Undo / redo ---------------------------------------------------------
@@ -154,6 +160,7 @@ export default function App() {
     setBoxStyleId(snap.boxStyleId);
     setDims(snap.dims);
     setArtwork(snap.artwork);
+    setSceneSettings((current) => ({ ...current, cameraPose: null }));
     setSelectedPanelId(null);
   };
 
@@ -308,7 +315,7 @@ export default function App() {
           boxStyleId={boxStyleId}
           dims={dims}
           onChangeStyle={handleChangeStyle}
-          onChangeDims={setDims}
+          onChangeDims={handleChangeDimensions}
           highlightFace={selectedPanelFace}
           highlightNonce={panelClickNonce}
         />

@@ -43,7 +43,7 @@ let fails = 0;
 const check = (label: string, ok: boolean) => { console.log(`${ok ? "ok  " : "FAIL"} ${label}`); if (!ok) fails++; };
 
 // 1. full round trip
-const scene = { background: "#dce4ec", ambient: 1.35, keyLight: 0.55, preset: "front" as const };
+const scene = { background: "#dce4ec", ambient: 1.35, keyLight: 0.55, preset: "front" as const, cameraPose: { position: [101, 70, 90] as [number, number, number], target: [20, 32, -10] as [number, number, number], up: [0, 1, 0] as [number, number, number] } };
 const loaded = parseProject(serializeProject("card-deck-lock", dims, artwork, scene));
 check("box style survives", loaded.boxStyleId === "card-deck-lock");
 check("dims survive (incl. asymmetric flap depths, widths, and shapes)", JSON.stringify(loaded.dims) === JSON.stringify(dims));
