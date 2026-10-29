@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BOX_STYLES, getBoxStyle } from "../geometry/boxBuilders";
 import { computeFlatLayout } from "../geometry/layout";
 import type { BoxDimensions, BoxStyleId, FaceRole, FlapWall } from "../geometry/types";
@@ -133,37 +133,20 @@ export default function Sidebar({ boxStyleId, dims, onChangeStyle, onChangeDims,
     };
   }, [highlightFace, highlightNonce]);
 
-  /**
-   * Which flaps this template actually has, derived by building it and looking at
-   * the resulting panels — no hand-maintained per-style table to drift out of
-   * sync when a builder changes. `hasWall` also reports which walls currently
-   * have a flap at 0mm (i.e. hidden), so those controls stay visible and can be
-   * turned back on.
-   */
-  const present = (() => {
-    const layout = computeFlatLayout(getBoxStyle(boxStyleId).build(dims));
-    const walls = new Set<FlapWall>();
-    for (const p of layout.panels) {
-      const m = /^flap-(top|bottom)-(front|back|left|right)$/.exec(p.face);
-      if (m) walls.add(m[2] as FlapWall);
-    }
-    return walls;
-  })();
-
-  const flapValue = (wall: FlapWall): number => {
-    if (dims.flaps?.[wall] !== undefined) return dims.flaps[wall]!;
-    // Fall back to whatever the builder actually produced, so the field shows the
-    // real current depth rather than a placeholder.
-    const layout = computeFlatLayout(getBoxStyle(boxStyleId).build(dims));
-    const panel = layout.panels.find((p) => p.face === `flap-top-${wall}` || p.face === `flap-bottom-${wall}`);
-    return panel ? Math.round(panel.h) : 0;
+  const layout = useMemo(() => computeFlatLayout(getBoxStyle(boxStyleId).build(dims)), [boxStyleId, dims]);
+  const wallPanel = (wall: FlapWall) => layout.panels.find((panel) => panel.face === wall);
+  const flapPanel = (edge: "top" | "bottom", wall: FlapWall) => layout.panels.find((panel) => panel.face === `flap-${edge}-${wall}`);
+  const flapDepth = (edge: "top" | "bottom", wall: FlapWall) => {
+    const explicit = dims.flapEdges?.[edge]?.[wall];
+    if (explicit !== undefined) return explicit;
+    return flapPanel(edge, wall)?.h ?? dims.flaps?.[wall] ?? 0;
   };
-
-  const setFlap = (wall: FlapWall, v: number) => onChangeDims({ ...dims, flaps: { ...dims.flaps, [wall]: v } });
-
-  // A wall control is worth showing if the template has that flap now, or if the
-  // user explicitly zeroed it (so it can be brought back).
-  const wallsToShow = FLAP_WALLS.filter((w) => present.has(w) || dims.flaps?.[w] !== undefined);
+  const flapWidth = (wall: FlapWall) => dims.flapWidths?.[wall] ?? wallPanel(wall)?.w ?? 0;
+  const setFlapDepth = (edge: "top" | "bottom", wall: FlapWall, value: number) =>
+    onChangeDims({ ...dims, flapEdges: { ...dims.flapEdges, [edge]: { ...dims.flapEdges?.[edge], [wall]: value } } });
+  const setFlapWidth = (wall: FlapWall, value: number) => onChangeDims({ ...dims, flapWidths: { ...dims.flapWidths, [wall]: value } });
+  const setFlapShape = (wall: FlapWall, value: NonNullable<BoxDimensions["flapShapes"]>[FlapWall]) =>
+    onChangeDims({ ...dims, flapShapes: { ...dims.flapShapes, [wall]: value } });
 
   return (
     <aside className="panel sidebar">
@@ -182,25 +165,32 @@ export default function Sidebar({ boxStyleId, dims, onChangeStyle, onChangeDims,
       <Field label="Width (W)" value={dims.width} onChange={(v) => onChangeDims({ ...dims, width: v })} flash={flashId === "width"} />
       <Field label="Height (H)" value={dims.height} onChange={(v) => onChangeDims({ ...dims, height: v })} flash={flashId === "height"} />
 
-      {wallsToShow.length > 0 && (
-        <>
-          <h2>Flap depths (mm)</h2>
-          <p className="muted">
-            One per wall. Each applies to that wall's top <em>and</em> bottom flap, so they always stay symmetrical. Set 0 to remove a flap.
-          </p>
-          {wallsToShow.map((wall) => (
-            <Field
-              key={wall}
-              label={WALL_LABELS[wall]}
-              value={flapValue(wall)}
-              min={0}
-              onChange={(v) => setFlap(wall, v)}
-              hint="Applies to both the top and bottom flap on this wall. 0 removes it."
-              flash={flashId === `flap-${wall}`}
-            />
-          ))}
-        </>
-      )}
+      <h2>Flaps — add & customize</h2>
+      <p className="muted">Set each top and bottom flap independently. Use 0 to remove it, or Add to create one. Choose outline and width along the wall.</p>
+      <div className="flap-controls">
+        {FLAP_WALLS.map((wall) => {
+          const parent = wallPanel(wall);
+          const topDepth = flapDepth("top", wall);
+          const bottomDepth = flapDepth("bottom", wall);
+          const maxWidth = parent?.w ?? Math.max(dims.length, dims.width);
+          const addedDepth = Math.max(10, Math.round((parent?.w ?? dims.length) * 0.35));
+          return (
+            <section className="flap-control" key={wall}>
+              <h3>{WALL_LABELS[wall]}</h3>
+              <Field label="Top depth (mm)" value={topDepth} min={0} onChange={(v) => setFlapDepth("top", wall, v)} flash={flashId === `flap-${wall}`} />
+              <button type="button" className="secondary flap-toggle" onClick={() => setFlapDepth("top", wall, topDepth > 0 ? 0 : addedDepth)}>{topDepth > 0 ? "Remove top flap" : "+ Add top flap"}</button>
+              <Field label="Bottom depth (mm)" value={bottomDepth} min={0} onChange={(v) => setFlapDepth("bottom", wall, v)} flash={flashId === `flap-${wall}`} />
+              <button type="button" className="secondary flap-toggle" onClick={() => setFlapDepth("bottom", wall, bottomDepth > 0 ? 0 : addedDepth)}>{bottomDepth > 0 ? "Remove bottom flap" : "+ Add bottom flap"}</button>
+              <Field label="Flap width (mm)" value={flapWidth(wall)} min={1} onChange={(v) => setFlapWidth(wall, Math.min(maxWidth, v))} hint={`Centered along wall; maximum ${maxWidth} mm.`} />
+              <label className="field"><span>Shape</span>
+                <select value={dims.flapShapes?.[wall] ?? "default"} onChange={(event) => setFlapShape(wall, event.target.value as NonNullable<BoxDimensions["flapShapes"]>[FlapWall])}>
+                  <option value="default">Style default</option><option value="straight">Straight edge</option><option value="dust">Angled dust flap</option><option value="tuck">Tuck / locking flap</option><option value="lock">Lock tab</option>
+                </select>
+              </label>
+            </section>
+          );
+        })}
+      </div>
 
       <h2>End flaps (mm)</h2>
       <p className="muted">Tabs at the two ends of the unfolded strip. Set 0 for none.</p>

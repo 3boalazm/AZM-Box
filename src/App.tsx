@@ -26,6 +26,7 @@ export default function App() {
   const [lockTemplate, setLockTemplate] = useState(false);
 
   const sceneRef = useRef<THREE.Group | null>(null);
+  const sceneCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const foldAnimationRef = useRef<number | null>(null);
 
   const animateFoldTo = (target: number) => {
@@ -263,7 +264,7 @@ export default function App() {
             </div>
           )}
         </div>
-        <ExportBar layout={layout} artwork={artwork} title={style.label.replace(/\s+/g, "_")} sceneRef={sceneRef} activeTab={activeTab} />
+        <ExportBar layout={layout} artwork={artwork} title={style.label.replace(/\s+/g, "_")} sceneRef={sceneRef} sceneCanvasRef={sceneCanvasRef} activeTab={activeTab} />
       </header>
 
       <div className="body">
@@ -294,7 +295,7 @@ export default function App() {
             </div>
           ) : (
             <div className="stage-3d">
-              <Fold3D root={root} foldAmount={foldAmount} texturesById={texturesById} onSceneReady={(g) => (sceneRef.current = g)} />
+              <Fold3D root={root} dims={dims} foldAmount={foldAmount} texturesById={texturesById} onSceneReady={(g) => (sceneRef.current = g)} onCanvasReady={(canvas) => (sceneCanvasRef.current = canvas)} />
               <div className="fold-slider" aria-label="3D box folding controls">
                 <div className="fold-progress">
                   <strong>Box folding</strong>

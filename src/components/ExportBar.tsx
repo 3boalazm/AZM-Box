@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { jsPDF } from "jspdf";
 import type { DielineLayout } from "../geometry/types";
 import type { ArtworkState, SideArtwork } from "../artwork/types";
 import { sideHasContent } from "../artwork/types";
@@ -15,6 +16,7 @@ interface Props {
   artwork: ArtworkState;
   title: string;
   sceneRef: React.MutableRefObject<THREE.Group | null>;
+  sceneCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
   activeTab: "2d" | "3d";
 }
 
@@ -28,7 +30,7 @@ function forPrint(side: SideArtwork): SideArtwork {
   return { ...side, backgroundColor: "#ffffff" };
 }
 
-export default function ExportBar({ layout, artwork, title, sceneRef, activeTab }: Props) {
+export default function ExportBar({ layout, artwork, title, sceneRef, sceneCanvasRef, activeTab }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [includeMeasurements, setIncludeMeasurements] = useState(false);
 
@@ -104,6 +106,30 @@ export default function ExportBar({ layout, artwork, title, sceneRef, activeTab 
       downloadBlob(`${title}.glb`, blob);
     });
 
+  const exportSceneImage = (format: "png" | "jpg") => run(format, async () => {
+    const canvas = sceneCanvasRef.current;
+    if (!canvas) throw new Error("Open the 3D preview first so its canvas is ready.");
+    const mime = format === "png" ? "image/png" : "image/jpeg";
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((value) => value ? resolve(value) : reject(new Error("Could not capture the 3D preview.")), mime, 0.94);
+    });
+    downloadBlob(`${title}_3d.${format}`, blob);
+  });
+
+  const exportScenePDF = () => run("scene-pdf", async () => {
+    const canvas = sceneCanvasRef.current;
+    if (!canvas) throw new Error("Open the 3D preview first so its canvas is ready.");
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 10;
+    const scale = Math.min((pageWidth - 2 * margin) / canvas.width, (pageHeight - 2 * margin) / canvas.height);
+    const width = canvas.width * scale;
+    const height = canvas.height * scale;
+    doc.addImage(canvas.toDataURL("image/png"), "PNG", (pageWidth - width) / 2, (pageHeight - height) / 2, width, height);
+    downloadBlob(`${title}_3d.pdf`, doc.output("blob"));
+  });
+
   const insidePrintNote = sideHasContent(artwork.inside)
     ? " The inside surface has artwork, so the SVG saves outside and inside as two separate, unmirrored files."
     : "";
@@ -127,6 +153,12 @@ export default function ExportBar({ layout, artwork, title, sceneRef, activeTab 
       <button disabled={!!busy} onClick={exportDXF}>
         {busy === "dxf" ? "Exporting…" : "Export DXF"}
       </button>
+      {activeTab === "3d" && <>
+        <span className="export-divider" aria-hidden="true" />
+        <button disabled={!!busy} onClick={() => exportSceneImage("png")} title="Save the current 3D view as PNG">{busy === "png" ? "Exporting…" : "Scene PNG"}</button>
+        <button disabled={!!busy} onClick={() => exportSceneImage("jpg")} title="Save the current 3D view as JPG">{busy === "jpg" ? "Exporting…" : "Scene JPG"}</button>
+        <button disabled={!!busy} onClick={exportScenePDF} title="Save the current 3D view on landscape A4">{busy === "scene-pdf" ? "Exporting…" : "Scene PDF"}</button>
+      </>}
       <button disabled={!!busy || activeTab !== "3d"} onClick={exportModel} title={activeTab !== "3d" ? "Switch to the 3D tab first" : ""}>
         {busy === "glb" ? "Exporting…" : "Export 3D Model (.glb)"}
       </button>

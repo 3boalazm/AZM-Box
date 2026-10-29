@@ -443,10 +443,71 @@ export const BOX_STYLES: BoxStyleDefinition[] = [
   },
 ];
 
+function applyCustomFlaps(root: PanelNode, dims: BoxDimensions): PanelNode {
+  if (!dims.flapEdges && !dims.flapWidths && !dims.flapShapes) return root;
+  const findWall = (node: PanelNode, face: FlapWall): PanelNode | undefined => {
+    if (node.face === face) return node;
+    for (const child of node.children) {
+      const found = findWall(child, face);
+      if (found) return found;
+    }
+    return undefined;
+  };
+  const outlineFor = (shape: NonNullable<BoxDimensions["flapShapes"]>[FlapWall], w: number, h: number) => {
+    switch (shape) {
+      case "straight": return undefined;
+      case "dust": return dustFlap(w, h);
+      case "tuck": return tuckFlap(w, h);
+      case "lock": return lockTab(w, h);
+      default: return undefined;
+    }
+  };
+  for (const wall of FLAP_WALLS) {
+    const parent = findWall(root, wall);
+    if (!parent) continue;
+    const width = Math.max(1, Math.min(parent.w, dims.flapWidths?.[wall] ?? parent.w));
+    for (const edge of ["top", "bottom"] as const) {
+      const face = `flap-${edge}-${wall}` as PanelNode["face"];
+      const existing = parent.children.find((child) => child.face === face);
+      const specifiedDepth = dims.flapEdges?.[edge]?.[wall];
+      if (specifiedDepth !== undefined && specifiedDepth <= 0) {
+        parent.children = parent.children.filter((child) => child.face !== face);
+        continue;
+      }
+      if (!existing && (specifiedDepth === undefined || specifiedDepth <= 0)) continue;
+      const depth = specifiedDepth ?? existing?.h ?? 0;
+      if (depth <= 0) continue;
+      const shape = dims.flapShapes?.[wall];
+      if (existing) {
+        const oldW = existing.w;
+        const oldH = existing.h;
+        if (existing.outline && (oldW !== width || oldH !== depth)) {
+          existing.outline = existing.outline.map(([x, y]) => [x * width / oldW, y * depth / oldH]);
+        }
+        existing.w = width;
+        existing.h = depth;
+        existing.parentOffset = (parent.w - width) / 2;
+        if (shape && shape !== "default") existing.outline = outlineFor(shape, width, depth);
+        continue;
+      }
+      const panel = makePanel({
+        name: `${edge === "top" ? "Top" : "Bottom"} Flap (${wall})`, face, w: width, h: depth,
+        foldAngle: edge === "top" ? TOP_FOLD : BOTTOM_FOLD, foldStart: 0.7, foldEnd: 1,
+      });
+      panel.parentEdge = edge;
+      panel.parentOffset = (parent.w - width) / 2;
+      panel.parentId = parent.id;
+      if (shape && shape !== "default") panel.outline = outlineFor(shape, width, depth);
+      parent.children.push(panel);
+    }
+  }
+  return root;
+}
+
 export function getBoxStyle(id: BoxStyleId): BoxStyleDefinition {
   const found = BOX_STYLES.find((s) => s.id === id);
   if (!found) throw new Error(`Unknown box style: ${id}`);
-  return found;
+  return { ...found, build: (dims) => applyCustomFlaps(found.build(dims), dims) };
 }
 
 export function panelBounds(node: PanelNode) {
