@@ -1,0 +1,15 @@
+{
+  "id": "/",
+  "name": "PackBox Studio — Packaging Design",
+  "short_name": "PackBox",
+  "description": "Design box dielines, add artwork, preview in 3D and export production files.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#10131a",
+  "theme_color": "#10131a",
+  "icons": [
+    { "src": "/pwa-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
