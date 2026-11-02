@@ -66,17 +66,33 @@ const noFlap = build(removeFace(base, root, flap.id));
 check("a template flap can be removed", !flattenTree(noFlap).some((n) => n.id === flap.id) && flattenTree(noFlap).length === ids.length - 1);
 check("a removed flap's edge becomes free for a new face", freeFaceEdges(noFlap).some((h) => h.panelId === flap.parentId && h.edge === "top"));
 
-// Removing a wall in the strip: its flaps go with it and the next wall closes the gap.
-const wall = flattenTree(root).find((n) => n.face === "left")!;
-const back = flattenTree(root).find((n) => n.face === "back")!;
-const lostWithWall = faceRemovalLoss(root, wall.id);
+// Removing a wall between two look-alike walls (the two sides, or front and back):
+// closing the gap would put them side by side, so nothing closes up and the strip stops there.
+const flatNodes = flattenTree(root);
+const wall = flatNodes.find((n) => n.face === "left")!;
+const back = flatNodes.find((n) => n.face === "back")!;
+const frontWall = flatNodes.find((n) => n.face === "front")!;
 const noWallDims = removeFace(base, root, wall.id);
 const noWall = build(noWallDims);
-const noWallLayout = computeFlatLayout(noWall);
-check("removing a wall also removes its own flaps", lostWithWall.length === 3 && flattenTree(noWall).length === ids.length - 3, `${lostWithWall.length} faces`);
-check("the wall beyond it closes the gap", flattenTree(noWall).find((n) => n.id === back.id)?.parentId === wall.parentId);
-check("the strip gets shorter by the removed wall", Math.abs(computeFlatLayout(root).bounds.width - noWallLayout.bounds.width - wall.w) < 1e-6, `-${wall.w} mm`);
-check("the closed-up faces keep working hinges", noWallLayout.foldLines.length >= noWallLayout.panels.length - 2);
+const kept = flattenTree(noWall).map((n) => n.id);
+check("a wall between look-alike faces takes everything beyond it with it", !kept.includes(wall.id) && !kept.includes(back.id) && kept.includes(frontWall.id), `${ids.length - kept.length} faces gone`);
+check("front and back never end up next to each other", !flattenTree(noWall).some((n) => n.face === "back"));
+check("the loss reported to the user matches what disappears", faceRemovalLoss(root, wall.id).length === ids.length - kept.length);
+
+const middle = flatNodes.find((n) => n.face === "back")!;
+const noMiddle = flattenTree(build(removeFace(base, root, middle.id)));
+check("removing the back would put the two sides together, so the strip is cut there", !noMiddle.some((n) => n.face === "right" || n.face === "glue"));
+
+// Between two faces that differ the gap does close: the right side sits between back and glue.
+const side = flatNodes.find((n) => n.face === "right")!;
+const glueNode = flatNodes.find((n) => n.face === "glue")!;
+const lostWithSide = faceRemovalLoss(root, side.id);
+const noSideTree = build(removeFace(base, root, side.id));
+const noSideLayout = computeFlatLayout(noSideTree);
+check("removing a wall between different faces removes only it and its flaps", lostWithSide.length === 3 && flattenTree(noSideTree).length === ids.length - 3, `${lostWithSide.length} faces`);
+check("the face beyond it closes the gap", flattenTree(noSideTree).find((n) => n.id === glueNode.id)?.parentId === side.parentId);
+check("the strip gets shorter by the removed wall", Math.abs(computeFlatLayout(root).bounds.width - noSideLayout.bounds.width - side.w) < 1e-6, `-${side.w} mm`);
+check("the closed-up faces keep working hinges", noSideLayout.foldLines.length >= noSideLayout.panels.length - 2);
 
 // Removing the base face: the biggest remaining group becomes the new base.
 const lostWithBase = faceRemovalLoss(root, root.id);

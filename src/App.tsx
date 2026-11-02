@@ -202,7 +202,7 @@ export default function App() {
     if (attached > 0) {
       const confirmed = await confirm({
         title: t("Remove face"),
-        message: t("Removing {name} also removes the {n} flaps and faces hinged to it. You can undo this with Ctrl/⌘ Z.", { name, n: attached }),
+        message: t("Removing {name} also removes the {n} flaps and faces hinged to it or beyond it. Faces that look alike, such as the two sides, are never left next to each other. You can undo this with Ctrl/⌘ Z.", { name, n: attached }),
         confirmLabel: t("Remove"),
         cancelLabel: t("Cancel"),
         danger: true,

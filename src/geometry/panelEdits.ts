@@ -1,4 +1,4 @@
-import type { AddedFace, BoxDimensions, HingeEdge, PanelEdits, PanelNode } from "./types";
+import type { AddedFace, BoxDimensions, FaceRole, HingeEdge, PanelEdits, PanelNode } from "./types";
 
 /**
  * Hand edits on top of a template: faces taken away, and rectangular faces added
@@ -92,15 +92,29 @@ function buildAddedFace(face: AddedFace, parent: PanelNode, index: number): Pane
 
 const sizeOf = (node: PanelNode): number => 1 + node.children.reduce((sum, child) => sum + sizeOf(child), 0);
 
+// Opposite walls of a box look alike, so a box never has them side by side.
+const OPPOSITE_PAIR: Partial<Record<FaceRole, string>> = { front: "front/back", back: "front/back", left: "left/right", right: "left/right" };
+
+function lookAlike(a: PanelNode, b: PanelNode): boolean {
+  const pairA = OPPOSITE_PAIR[a.face];
+  const pairB = OPPOSITE_PAIR[b.face];
+  if (pairA && pairB) return pairA === pairB;
+  return Math.abs(a.w - b.w) < 0.5 && Math.abs(a.h - b.h) < 0.5;
+}
+
 /**
  * The face that takes over when `node` is removed. In a strip of walls the next
  * wall along the same edge closes the gap (it is re-hinged to the removed face's
- * parent); for the base face the biggest group of faces becomes the new base.
+ * parent) — unless that would put two look-alike faces next to each other, such as
+ * the two sides or the front and back. A box always has a different face between
+ * them, so then nothing closes up and everything beyond goes with the removed face.
+ * For the base face the biggest group of faces becomes the new base.
  */
-function successorOf(node: PanelNode, isRoot: boolean): PanelNode | undefined {
+function successorOf(node: PanelNode, isRoot: boolean, parent?: PanelNode): PanelNode | undefined {
   // Hand-added faces never become the base: they only exist once the template is settled.
   if (isRoot) return [...node.children].filter((child) => child.face !== "extra").sort((a, b) => sizeOf(b) - sizeOf(a))[0];
-  return node.children.find((child) => child.parentEdge === node.parentEdge);
+  const next = node.children.find((child) => child.parentEdge === node.parentEdge);
+  return next && parent && lookAlike(parent, next) ? undefined : next;
 }
 
 /**
@@ -117,7 +131,7 @@ export function applyPanelEdits(root: PanelNode, edits?: PanelEdits): PanelNode 
   // along the same edge, if any, is re-hinged in its place.
   const settle = (parent: PanelNode, child: PanelNode): PanelNode[] => {
     if (!removed.has(child.id)) return [child];
-    const next = successorOf(child, false);
+    const next = successorOf(child, false, parent);
     if (!next) return [];
     next.parentEdge = child.parentEdge;
     next.parentOffset = child.parentOffset ?? 0;
@@ -177,7 +191,7 @@ const subtreeIds = (node: PanelNode): string[] => [node.id, ...node.children.fla
 export function faceRemovalLoss(root: PanelNode, panelId: string): string[] {
   const node = locate(root).get(panelId)?.node;
   if (!node) return [];
-  const keep = successorOf(node, node === root);
+  const keep = successorOf(node, node === root, node.parentId ? locate(root).get(node.parentId)?.node : undefined);
   return [node.id, ...node.children.filter((child) => child !== keep).flatMap(subtreeIds)];
 }
 

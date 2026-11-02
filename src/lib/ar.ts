@@ -25,7 +25,7 @@ export const AR: Record<string, string> = {
   "A face cannot be added on that edge.": "لا يمكن إضافة وجه على هذه الحافة.",
   "The last face cannot be removed.": "لا يمكن إزالة آخر وجه.",
   "Remove face": "إزالة الوجه",
-  "Removing {name} also removes the {n} flaps and faces hinged to it. You can undo this with Ctrl/⌘ Z.": "إزالة {name} ستزيل أيضاً {n} من الألسنة والأوجه المتصلة بها. يمكنك التراجع بـ Ctrl/⌘ Z.",
+  "Removing {name} also removes the {n} flaps and faces hinged to it or beyond it. Faces that look alike, such as the two sides, are never left next to each other. You can undo this with Ctrl/⌘ Z.": "إزالة {name} ستزيل أيضاً {n} من الألسنة والأوجه المتصلة بها أو التي بعدها. لا يُترك وجهان متشابهان (مثل الجانبين) متجاورين. يمكنك التراجع بـ Ctrl/⌘ Z.",
   "Faces": "الأوجه",
   "{n} edited": "{n} معدّل",
   "Click + on a free edge of the dieline to add a face there. Select a face, then − to remove it.": "اضغط + على حافة حرّة في المخطط لإضافة وجه هناك. اختر وجهاً ثم − لإزالته.",
