@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Stage, Layer, Line, Arrow, Group, Image as KonvaImage, Text as KonvaText, Rect, Transformer } from "react-konva";
+import { Stage, Layer, Line, Arrow, Group, Image as KonvaImage, Text as KonvaText, Rect, Circle, Transformer } from "react-konva";
 import type Konva from "konva";
 import type { DielineLayout, FlatPanel } from "../geometry/types";
 import { panelLocalToWorld, worldToPanelLocal } from "../geometry/types";
 import type { EditorLayer, SideArtwork } from "../artwork/types";
 import { computeDimensionLines } from "../geometry/dimensions";
+import type { FaceHandle } from "../geometry/panelEdits";
+import type { HingeEdge } from "../geometry/types";
 import { useImage } from "./useImage";
 import Icon from "./Icon";
 
@@ -31,6 +33,25 @@ interface Props {
    */
   lockTemplate?: boolean;
   onToggleLockTemplate?: (v: boolean) => void;
+  /** Edges where a new face can be attached. Drawn as + handles while face editing is on. */
+  faceHandles?: FaceHandle[];
+  faceEditing?: boolean;
+  onToggleFaceEditing?: (v: boolean) => void;
+  onAddFace?: (parentId: string, edge: HingeEdge) => void;
+  onRemoveFace?: (panelId: string) => void;
+}
+
+/** Screen-pixel size of the +/− face handles; they stay the same size at every zoom. */
+const FACE_HANDLE_R = 10;
+const FACE_HANDLE_GAP = 15;
+
+function FaceButton({ x, y, symbol, color, label, onPress }: { x: number; y: number; symbol: string; color: string; label: string; onPress: () => void }) {
+  return (
+    <Group x={x} y={y} name={label} onClick={(e) => { e.cancelBubble = true; onPress(); }} onTap={(e) => { e.cancelBubble = true; onPress(); }} onMouseEnter={(e) => { const c = e.target.getStage()?.container(); if (c) c.style.cursor = "pointer"; }} onMouseLeave={(e) => { const c = e.target.getStage()?.container(); if (c) c.style.cursor = ""; }}>
+      <Circle radius={FACE_HANDLE_R} fill={color} stroke="#ffffff" strokeWidth={2} shadowColor="#000000" shadowOpacity={0.25} shadowBlur={4} />
+      <KonvaText text={symbol} x={-FACE_HANDLE_R} y={-FACE_HANDLE_R} width={FACE_HANDLE_R * 2} height={FACE_HANDLE_R * 2} align="center" verticalAlign="middle" fontSize={16} fontStyle="bold" fill="#ffffff" listening={false} />
+    </Group>
+  );
 }
 
 /** Renders every double-headed dimension line as a Konva Arrow (pointer at both ends) + label. */
@@ -293,6 +314,7 @@ const DIMENSION_MARGIN_MM = 18;
 // which sit slightly OUTSIDE the shape they belong to — always land on canvas
 // and stay clickable, even for artwork larger than the sheet itself.
 const HANDLE_PAD_MM = 14;
+const FACE_EDIT_PAD_MM = 20;
 
 /** Rotation snap targets used while Shift is held. */
 const ROTATION_SNAPS_45 = [0, 45, 90, 135, 180, 225, 270, 315];
@@ -320,6 +342,11 @@ export default function DielineEditor({
   lockedLayerIds = [],
   lockTemplate = false,
   onToggleLockTemplate,
+  faceHandles = [],
+  faceEditing = false,
+  onToggleFaceEditing,
+  onAddFace,
+  onRemoveFace,
 }: Props) {
   const [localSelectedLayerId, setLocalSelectedLayerId] = useState<string | null>(null);
   const selectedLayerId = selectedArtworkLayerId === undefined ? localSelectedLayerId : selectedArtworkLayerId;
@@ -339,7 +366,8 @@ export default function DielineEditor({
    * the dieline, the placed sheet artwork and every layer, plus padding for the
    * handles themselves and (optionally) the dimension arrows.
    */
-  const contentPadMm = Math.max(showDimensions ? DIMENSION_MARGIN_MM : 0, HANDLE_PAD_MM);
+  // The +/− face handles hang outside the dieline edges, so they need room too.
+  const contentPadMm = Math.max(showDimensions ? DIMENSION_MARGIN_MM : 0, faceEditing ? FACE_EDIT_PAD_MM : 0, HANDLE_PAD_MM);
   const content = (() => {
     let minX = 0;
     let minY = 0;
@@ -594,6 +622,10 @@ export default function DielineEditor({
           <input aria-label="Select artwork through the dieline" type="checkbox" checked={lockTemplate} onChange={(e) => onToggleLockTemplate?.(e.target.checked)} />
           <span><Icon name="image"/> Pick artwork</span>
         </label>
+        {onAddFace && <label className={`toolbar-check${faceEditing ? " selected" : ""}`} title="Show + handles on free edges to add a face, and − on the selected face to remove it.">
+          <input aria-label="Edit faces" type="checkbox" checked={faceEditing} onChange={(e) => onToggleFaceEditing?.(e.target.checked)} />
+          <span><Icon name="plus"/> Faces ±</span>
+        </label>}
         <span className="sheet-readout">{layout.bounds.width.toFixed(0)} × {layout.bounds.height.toFixed(0)} mm</span>
       </div>
       <div
@@ -753,6 +785,32 @@ export default function DielineEditor({
           })}
         />
       </Layer>
+
+      {faceEditing && onAddFace && (
+        <Layer>
+          {faceHandles.map((handle) => {
+            const panel = panelById[handle.panelId];
+            if (!panel) return null;
+            const [minX, maxY] = toStage(panel.min[0], panel.max[1], layout.bounds.height, pxPerMm);
+            const [maxX, minY] = toStage(panel.max[0], panel.min[1], layout.bounds.height, pxPerMm);
+            const midX = (minX + maxX) / 2;
+            const midY = (maxY + minY) / 2;
+            const at: Record<HingeEdge, [number, number]> = {
+              top: [midX, maxY - FACE_HANDLE_GAP],
+              bottom: [midX, minY + FACE_HANDLE_GAP],
+              left: [minX - FACE_HANDLE_GAP, midY],
+              right: [maxX + FACE_HANDLE_GAP, midY],
+            };
+            const [hx, hy] = at[handle.edge];
+            return <FaceButton key={`add-${handle.panelId}-${handle.edge}`} x={hx} y={hy} symbol="+" color="#2563eb" label={`Add a face on the ${handle.edge} edge of ${panel.name}`} onPress={() => onAddFace(handle.panelId, handle.edge)} />;
+          })}
+          {onRemoveFace && selectedPanelId && panelById[selectedPanelId] && (() => {
+            const panel = panelById[selectedPanelId];
+            const [rightX, topY] = toStage(panel.max[0], panel.max[1], layout.bounds.height, pxPerMm);
+            return <FaceButton key="remove-face" x={rightX - FACE_HANDLE_GAP} y={topY + FACE_HANDLE_GAP} symbol="−" color="#dc2626" label={`Remove ${panel.name}`} onPress={() => onRemoveFace(panel.id)} />;
+          })()}
+        </Layer>
+      )}
 
       {showDimensions && (
         <Layer listening={false}>

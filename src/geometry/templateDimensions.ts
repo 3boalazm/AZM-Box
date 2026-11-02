@@ -2,12 +2,19 @@ import type { BoxDimensions } from "./types";
 
 /** Keep the user's physical box size while seeding style-specific closures from the new template. */
 export function transferDimensionsToTemplate(current: BoxDimensions, nextDefaults: BoxDimensions, keepCustom = false): BoxDimensions {
+  // Board thickness and the inside/outside basis describe the material and how
+  // the size was measured, not the template, so they always travel with the box.
+  const material = {
+    ...(current.materialThickness !== undefined ? { materialThickness: current.materialThickness } : {}),
+    ...(current.dimensionBasis !== undefined ? { dimensionBasis: current.dimensionBasis } : {}),
+  };
   if (!keepCustom) {
     return {
       ...nextDefaults,
       length: current.length,
       width: current.width,
       height: current.height,
+      ...material,
     };
   }
 
@@ -19,6 +26,7 @@ export function transferDimensionsToTemplate(current: BoxDimensions, nextDefault
     length: current.length,
     width: current.width,
     height: current.height,
+    ...material,
     ...(current.endFlapLeft !== undefined ? { endFlapLeft: current.endFlapLeft } : {}),
     ...(current.endFlapRight !== undefined ? { endFlapRight: current.endFlapRight } : {}),
     ...(current.flaps ? { flaps: current.flaps } : {}),

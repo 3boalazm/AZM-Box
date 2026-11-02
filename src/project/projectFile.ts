@@ -2,6 +2,7 @@ import type { BoxDimensions, BoxStyleId } from "../geometry/types";
 import type { ArtworkState, SideArtwork, EditorLayer } from "../artwork/types";
 import { emptySide } from "../artwork/types";
 import { BOX_STYLES } from "../geometry/boxBuilders";
+import { sanitizePanelEdits } from "../geometry/panelEdits";
 import { DEFAULT_SCENE_SETTINGS, normalizeSceneSettings } from "./sceneSettings";
 import type { SceneSettings } from "./sceneSettings";
 
@@ -137,7 +138,9 @@ function normalizeTemplateMemory(raw: unknown): Partial<Record<BoxStyleId, BoxDi
         throw new Error(`Saved ${id} flap shapes are invalid.`);
       }
     }
-    memory[style.id] = { ...style.defaultDimensions, ...dimensions, length: dimensions.length, width: dimensions.width, height: dimensions.height };
+    const { panelEdits: rawEdits, ...rest } = dimensions;
+    const panelEdits = sanitizePanelEdits(rawEdits);
+    memory[style.id] = { ...style.defaultDimensions, ...rest, length: dimensions.length, width: dimensions.width, height: dimensions.height, ...(panelEdits ? { panelEdits } : {}) };
   }
   return memory;
 }
@@ -176,6 +179,12 @@ export function parseProject(text: string): { boxStyleId: BoxStyleId; dims: BoxD
   validateDimension(d.endFlapLeft, "Left end flap depth");
   validateDimension(d.endFlapRight, "Right end flap depth");
   validateDimension(d.lidDepth, "Lid depth", 1);
+  if (d.materialThickness !== undefined && (!isFiniteNumber(d.materialThickness) || d.materialThickness < 0 || d.materialThickness > 50)) {
+    throw new Error("Material thickness must be between 0 and 50 mm.");
+  }
+  if (d.dimensionBasis !== undefined && d.dimensionBasis !== "internal" && d.dimensionBasis !== "external") {
+    throw new Error("Dimension basis must be internal or external.");
+  }
   validateDimensionMap(d.flaps, "Flap depths");
   validateDimensionMap(d.flapWidths, "Flap widths", 1);
   if (d.flapEdges !== undefined) {
@@ -188,12 +197,15 @@ export function parseProject(text: string): { boxStyleId: BoxStyleId; dims: BoxD
     const validShapes = new Set(["default", "straight", "dust", "tuck", "lock"]);
     if (Object.values(d.flapShapes).some((shape) => !validShapes.has(String(shape)))) throw new Error("The project contains an unknown flap shape.");
   }
+  const { panelEdits: rawEdits, ...restOfDims } = d;
+  const panelEdits = sanitizePanelEdits(rawEdits);
   const dims: BoxDimensions = {
     ...style.defaultDimensions,
-    ...d,
+    ...restOfDims,
     length: d.length,
     width: d.width,
     height: d.height,
+    ...(panelEdits ? { panelEdits } : {}),
   };
 
   const a = (typeof file.artwork === "object" && file.artwork !== null ? file.artwork : {}) as Record<string, unknown>;

@@ -1,23 +1,32 @@
 import { useEffect, useRef, useState } from "react";
-import type { DielineLayout } from "../geometry/types";
+import type { BoxDimensions, DielineLayout } from "../geometry/types";
 import type { ArtworkState, SideArtwork } from "../artwork/types";
 import { sideHasContent } from "../artwork/types";
 import { renderFullSheetCanvas } from "../artwork/renderPanel";
+import { buildArtworkMarkup, sideHasVectorArt } from "../artwork/vectorSheet";
 import { generateDielineSVG } from "../geometry/svgExport";
 import { generateDielineDXF } from "../geometry/dxfExport";
 import { downloadBlob } from "../lib/files";
 import type * as THREE from "three";
 import Icon from "./Icon";
+import { useFeedback } from "./Feedback";
+import ExportDialog from "./ExportDialog";
+import type { ExportSettings } from "../lib/preferences";
+import { resolvePaper, setPreferences, usePreferences } from "../lib/preferences";
+import { useT } from "../lib/i18n";
 
 interface Props {
   layout: DielineLayout;
+  dims: BoxDimensions;
+  styleDefaults: BoxDimensions;
   artwork: ArtworkState;
   title: string;
   sceneRef: React.MutableRefObject<THREE.Group | null>;
   sceneCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
   transparentSceneExportRef: React.MutableRefObject<(() => Promise<Blob>) | null>;
   activeTab: "2d" | "3d";
-  onRequest3D: () => void;
+  /** Lets 3D exports switch to the 3D Studio themselves instead of being disabled. */
+  onRequestTab: (tab: "2d" | "3d") => void;
 }
 
 /**
@@ -30,9 +39,13 @@ function forPrint(side: SideArtwork): SideArtwork {
   return { ...side, backgroundColor: "#ffffff" };
 }
 
-export default function ExportBar({ layout, artwork, title, sceneRef, sceneCanvasRef, transparentSceneExportRef, activeTab, onRequest3D }: Props) {
+export default function ExportBar({ layout, dims, styleDefaults, artwork, title, sceneRef, sceneCanvasRef, transparentSceneExportRef, activeTab, onRequestTab }: Props) {
+  const { notify } = useFeedback();
+  const t = useT();
+  const { exportSettings } = usePreferences();
   const [busy, setBusy] = useState<string | null>(null);
-  const [includeMeasurements, setIncludeMeasurements] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const includeMeasurements = exportSettings.measurements;
   const exportMenuRef = useRef<HTMLDetailsElement>(null);
   useEffect(() => { if (exportMenuRef.current) exportMenuRef.current.open = false; }, [activeTab]);
   const closeExportMenu = () => { if (exportMenuRef.current) exportMenuRef.current.open = false; };
@@ -44,23 +57,53 @@ export default function ExportBar({ layout, artwork, title, sceneRef, sceneCanva
       await fn();
     } catch (err) {
       console.error(err);
-      alert(`Export failed: ${(err as Error).message ?? err}`);
+      notify(`Export failed: ${(err as Error).message ?? err}`, "error");
     } finally {
       setBusy(null);
     }
   };
 
+  const save = (filename: string, blob: Blob) => {
+    downloadBlob(filename, blob);
+    notify(`Exported ${filename}`, "success");
+  };
+
+  // The 3D refs outlive the 3D view (they keep pointing at a torn-down canvas), so
+  // from the dieline tab they are cleared, the studio is opened, and we wait for
+  // the freshly mounted scene to publish new ones before exporting from it.
+  const ensure3D = async () => {
+    if (activeTab === "3d") return;
+    sceneRef.current = null;
+    sceneCanvasRef.current = null;
+    transparentSceneExportRef.current = null;
+    onRequestTab("3d");
+    const deadline = Date.now() + 10000;
+    while (!(sceneRef.current && sceneCanvasRef.current && transparentSceneExportRef.current)) {
+      if (Date.now() > deadline) throw new Error("The 3D studio took too long to load. Open the 3D tab and try again.");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    // Give textures and the first frames a moment to settle so the capture isn't blank.
+    await new Promise((resolve) => setTimeout(resolve, 700));
+  };
+
+  // Sides that use SVG artwork are exported as markup so they stay vector; every
+  // other side keeps the flattened 8 px/mm bitmap.
+  const artworkFor = async (side: SideArtwork): Promise<{ artworkDataUrl?: string; artworkMarkup?: string }> => {
+    const printable = forPrint(side);
+    if (sideHasVectorArt(printable)) return { artworkMarkup: buildArtworkMarkup(layout, printable) };
+    return { artworkDataUrl: (await renderFullSheetCanvas(layout, printable, 8)).toDataURL("image/png") };
+  };
+
   const exportSVG = () =>
     run("svg", async () => {
       const hasInside = sideHasContent(artwork.inside);
-      const outsideCanvas = await renderFullSheetCanvas(layout, forPrint(artwork.outside), 8);
       const outsideSvg = generateDielineSVG(layout, {
-        artworkDataUrl: outsideCanvas.toDataURL("image/png"),
+        ...(await artworkFor(artwork.outside)),
         title,
         trimGuide: true,
         dimensions: includeMeasurements,
       });
-      downloadBlob(`${title}${hasInside ? "_outside" : ""}.svg`, new Blob([outsideSvg], { type: "image/svg+xml" }));
+      save(`${title}${hasInside ? "_outside" : ""}.svg`, new Blob([outsideSvg], { type: "image/svg+xml" }));
 
       if (hasInside) {
         // Saved UNMIRRORED, unlike the PDF's inside page. These are separate image
@@ -68,68 +111,76 @@ export default function ExportBar({ layout, artwork, title, sceneRef, sceneCanva
         // (and therefore which axis a long-edge flip turns about) isn't known here.
         // Shipping it the right way round keeps it predictable — mirror it in that
         // program if you send it to a duplex printer.
-        const insideCanvas = await renderFullSheetCanvas(layout, forPrint(artwork.inside), 8);
         const insideSvg = generateDielineSVG(layout, {
-          artworkDataUrl: insideCanvas.toDataURL("image/png"),
+          ...(await artworkFor(artwork.inside)),
           title,
           trimGuide: true,
           dimensions: includeMeasurements,
         });
-        downloadBlob(`${title}_inside.svg`, new Blob([insideSvg], { type: "image/svg+xml" }));
+        save(`${title}_inside.svg`, new Blob([insideSvg], { type: "image/svg+xml" }));
       }
     });
 
-  const exportPDF = () =>
+  const exportPDF = (settings: ExportSettings) =>
     run("pdf", async () => {
+      setDialogOpen(false);
       const { exportDielinePDF } = await import("../geometry/pdfExport");
       // Both faces are always rendered and always exported — the inside sheet is
       // needed for print regardless of whether artwork has been added to it yet.
-      const outsideCanvas = await renderFullSheetCanvas(layout, forPrint(artwork.outside), 8);
-      const insideCanvas = await renderFullSheetCanvas(layout, forPrint(artwork.inside), 8);
+      const outside = await artworkFor(artwork.outside);
+      const inside = await artworkFor(artwork.inside);
       const blob = await exportDielinePDF(layout, {
-        outsideArtworkDataUrl: outsideCanvas.toDataURL("image/png"),
-        insideArtworkDataUrl: insideCanvas.toDataURL("image/png"),
+        outsideArtworkDataUrl: outside.artworkDataUrl,
+        outsideArtworkMarkup: outside.artworkMarkup,
+        insideArtworkDataUrl: inside.artworkDataUrl,
+        insideArtworkMarkup: inside.artworkMarkup,
         title,
-        dimensions: includeMeasurements,
+        paper: resolvePaper(settings),
+        marginMm: settings.margin,
+        bleedMm: settings.bleed,
+        cropMarks: settings.cropMarks,
+        includeInside: settings.includeInside,
+        dimensions: settings.measurements,
       });
-      downloadBlob(`${title}.pdf`, blob);
+      save(`${title}.pdf`, blob);
     });
 
   const exportDXF = () =>
     run("dxf", async () => {
       const dxf = generateDielineDXF(layout);
-      downloadBlob(`${title}.dxf`, new Blob([dxf], { type: "application/dxf" }));
+      save(`${title}.dxf`, new Blob([dxf], { type: "application/dxf" }));
     });
 
   const exportModel = () =>
     run("glb", async () => {
       const { exportGLB } = await import("../geometry/glbExport");
-      if (!sceneRef.current) {
-        onRequest3D();
-        throw new Error("3D Studio is opening. Please export the model again once the preview has loaded.");
-      }
+      await ensure3D();
+      if (!sceneRef.current) throw new Error("The 3D model is not ready yet. Open the 3D tab and try again.");
       const blob = await exportGLB(sceneRef.current);
-      downloadBlob(`${title}.glb`, blob);
+      save(`${title}.glb`, blob);
     });
 
   const exportSceneImage = (format: "png" | "jpg") => run(format, async () => {
+    await ensure3D();
     const canvas = sceneCanvasRef.current;
     if (!canvas) throw new Error("Open the 3D preview first so its canvas is ready.");
     const mime = format === "png" ? "image/png" : "image/jpeg";
     const blob = await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob((value) => value ? resolve(value) : reject(new Error("Could not capture the 3D preview.")), mime, 0.94);
     });
-    downloadBlob(`${title}_3d.${format}`, blob);
+    save(`${title}_3d.${format}`, blob);
   });
 
   const exportTransparentScene = () => run("transparent-png", async () => {
+    await ensure3D();
     const capture = transparentSceneExportRef.current;
     if (!capture) throw new Error("Open the 3D preview first so its renderer is ready.");
-    downloadBlob(`${title}_3d_transparent.png`, await capture());
+    save(`${title}_3d_transparent.png`, await capture());
   });
 
   const exportScenePDF = () => run("scene-pdf", async () => {
     const { jsPDF } = await import("jspdf");
+    await ensure3D();
     const canvas = sceneCanvasRef.current;
     if (!canvas) throw new Error("Open the 3D preview first so its canvas is ready.");
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
@@ -140,31 +191,32 @@ export default function ExportBar({ layout, artwork, title, sceneRef, sceneCanva
     const width = canvas.width * scale;
     const height = canvas.height * scale;
     doc.addImage(canvas.toDataURL("image/png"), "PNG", (pageWidth - width) / 2, (pageHeight - height) / 2, width, height);
-    downloadBlob(`${title}_3d.pdf`, doc.output("blob"));
+    save(`${title}_3d.pdf`, doc.output("blob"));
   });
 
   return (
-    <div className="export-bar" aria-label="Export project">
-      <button type="button" className="export-primary" disabled={!!busy} onClick={exportPDF} title="Print-ready A4 PDF with the dieline and both box faces.">
-        <Icon name="download"/><span>{busy === "pdf" ? "Preparing…" : "Export PDF"}</span>
+    <div className="export-bar" aria-label={t("Export project")}>
+      <button type="button" className="export-primary" disabled={!!busy} onClick={() => setDialogOpen(true)} title={t("Print-ready PDF with the dieline and both box faces. Opens paper, bleed and preflight options.")}>
+        <Icon name="download"/><span>{busy === "pdf" ? t("Preparing…") : t("Export PDF")}</span>
       </button>
       <details ref={exportMenuRef} className="export-menu" onToggle={(event) => { if (event.currentTarget.open) window.dispatchEvent(new Event("packbox:export-menu-open")); }}>
-        <summary aria-label="More export options" title="More export options"><Icon name="more"/><Icon name="chevron"/></summary>
-        <div className="export-popover" role="group" aria-label="Export options">
-          <div className="export-group-label">PRODUCTION FILES</div>
-          <button type="button" className="export-option" disabled={!!busy} onClick={() => runFromMenu(exportSVG)}><span><b>SVG dieline</b><small>Vector artwork · outside / inside</small></span><Icon name="download"/></button>
-          <button type="button" className="export-option" disabled={!!busy} onClick={() => runFromMenu(exportDXF)}><span><b>DXF cut file</b><small>CAD-ready cut and crease lines</small></span><Icon name="download"/></button>
-          <button type="button" className="export-option" disabled={!!busy} onClick={() => runFromMenu(exportModel)} title="Export the assembled model; opens 3D Studio if needed."><span><b>3D model · GLB</b><small>{activeTab === "3d" ? "Folded packaging geometry" : "Switch to 3D Studio to prepare model"}</small></span><Icon name="download"/></button>
-          <label className="export-measurements"><input type="checkbox" checked={includeMeasurements} onChange={(e) => setIncludeMeasurements(e.target.checked)}/><span>Include measurement marks</span></label>
-          <div className="export-group-label presentation-label">PRESENTATION</div>
+        <summary aria-label={t("More export options")} title={t("More export options")}><Icon name="more"/><Icon name="chevron"/></summary>
+        <div className="export-popover" role="group" aria-label={t("Export options")}>
+          <div className="export-group-label">{t("PRODUCTION FILES")}</div>
+          <button type="button" className="export-option" disabled={!!busy} onClick={() => runFromMenu(exportSVG)}><span><b>{t("SVG dieline")}</b><small>{t("Vector artwork · outside / inside")}</small></span><Icon name="download"/></button>
+          <button type="button" className="export-option" disabled={!!busy} onClick={() => runFromMenu(exportDXF)}><span><b>{t("DXF cut file")}</b><small>{t("CAD-ready cut and crease lines")}</small></span><Icon name="download"/></button>
+          <button type="button" className="export-option" disabled={!!busy} onClick={() => runFromMenu(exportModel)} title={t("Export the assembled model.")}><span><b>{t("3D model · GLB")}</b><small>{activeTab === "3d" ? t("Folded packaging geometry") : t("Folded geometry · opens 3D Studio")}</small></span><Icon name="download"/></button>
+          <label className="export-measurements"><input type="checkbox" checked={includeMeasurements} onChange={(e) => setPreferences({ exportSettings: { ...exportSettings, measurements: e.target.checked } })}/><span>{t("Include measurement marks")}</span></label>
+          <div className="export-group-label presentation-label">{t("PRESENTATION")}</div>
           <div className="presentation-exports">
-            <button type="button" className="export-option" disabled={!!busy || activeTab !== "3d"} onClick={() => runFromMenu(exportTransparentScene)} title="Save the current 3D view as a transparent PNG"><span><b>Scene image · PNG transparent</b><small>Transparent background · alpha channel</small></span><Icon name="image"/></button>
-            <button type="button" className="export-option" disabled={!!busy || activeTab !== "3d"} onClick={() => runFromMenu(() => exportSceneImage("png"))} title="Save the current 3D view as PNG"><span><b>Scene image · PNG</b><small>Current studio background included</small></span><Icon name="image"/></button>
-            <button type="button" className="export-option" disabled={!!busy || activeTab !== "3d"} onClick={() => runFromMenu(() => exportSceneImage("jpg"))} title="Save the current 3D view as JPG"><span><b>Scene image · JPG</b><small>Compressed preview capture</small></span><Icon name="image"/></button>
-            <button type="button" className="export-option" disabled={!!busy || activeTab !== "3d"} onClick={() => runFromMenu(exportScenePDF)} title="Save the current 3D view on landscape A4"><span><b>Scene PDF</b><small>Landscape A4 presentation</small></span><Icon name="download"/></button>
+            <button type="button" className="export-option" disabled={!!busy} onClick={() => runFromMenu(exportTransparentScene)} title={t("Save the current 3D view as a transparent PNG")}><span><b>{t("Scene image · PNG transparent")}</b><small>{t("Transparent background · alpha channel")}</small></span><Icon name="image"/></button>
+            <button type="button" className="export-option" disabled={!!busy} onClick={() => runFromMenu(() => exportSceneImage("png"))} title={t("Save the current 3D view as PNG")}><span><b>{t("Scene image · PNG")}</b><small>{t("Current studio background included")}</small></span><Icon name="image"/></button>
+            <button type="button" className="export-option" disabled={!!busy} onClick={() => runFromMenu(() => exportSceneImage("jpg"))} title={t("Save the current 3D view as JPG")}><span><b>{t("Scene image · JPG")}</b><small>{t("Compressed preview capture")}</small></span><Icon name="image"/></button>
+            <button type="button" className="export-option" disabled={!!busy} onClick={() => runFromMenu(exportScenePDF)} title={t("Save the current 3D view on landscape A4")}><span><b>{t("Scene PDF")}</b><small>{t("Landscape A4 presentation")}</small></span><Icon name="download"/></button>
           </div>
         </div>
       </details>
+      {dialogOpen && <ExportDialog layout={layout} dims={dims} styleDefaults={styleDefaults} artwork={artwork} busy={busy === "pdf"} onClose={() => setDialogOpen(false)} onExport={exportPDF} />}
     </div>
   );
 }

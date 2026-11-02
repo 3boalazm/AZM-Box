@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, dialog } = require("electron");
 const path = require("node:path");
 
 // Three launch modes:
@@ -22,6 +22,21 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
+  });
+
+  // The renderer asks to block unload when the design has unsaved changes. Electron
+  // would otherwise swallow the close silently, so ask the user what to do.
+  win.webContents.on("will-prevent-unload", (event) => {
+    const choice = dialog.showMessageBoxSync(win, {
+      type: "question",
+      buttons: ["Leave", "Stay"],
+      defaultId: 1,
+      cancelId: 1,
+      title: "Unsaved changes",
+      message: "You have unsaved changes.",
+      detail: "Your design is autosaved on this device, but it has not been saved to a .pbox file. Leave anyway?",
+    });
+    if (choice === 0) event.preventDefault(); // preventDefault() here means "ignore the block, close"
   });
 
   if (isDev) {

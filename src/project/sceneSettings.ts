@@ -13,7 +13,49 @@ export interface StudioLight {
   position: [number, number, number];
 }
 
-export type MaterialPreset = "board" | "matte" | "satin" | "metallic";
+export type MaterialPreset = "board" | "matte" | "satin" | "metallic" | "gloss" | "kraft" | "softtouch" | "custom";
+export type SurfaceTexture = "none" | "grain" | "linen" | "fibre";
+export type Vec3 = [number, number, number];
+
+/** Physically-based surface settings for the board. Illustrative only, never a print proof. */
+export interface MaterialParams {
+  roughness: number;
+  metalness: number;
+  /** Clear lacquer / varnish layer (0 = none, 1 = full gloss coat). */
+  clearcoat: number;
+  clearcoatRoughness: number;
+  /** Colour multiplied over printed artwork (kraft board tints everything printed on it). */
+  tint: string;
+  /** Faces shown without artwork. */
+  boardColor: string;
+  insideColor: string;
+  texture: SurfaceTexture;
+  textureStrength: number;
+  /** Size of one texture tile in mm. */
+  textureScale: number;
+}
+
+const BASE_MATERIAL: MaterialParams = {
+  roughness: 0.85, metalness: 0, clearcoat: 0, clearcoatRoughness: 0.5,
+  tint: "#ffffff", boardColor: "#d8cdb8", insideColor: "#efe6d3",
+  texture: "none", textureStrength: 0.5, textureScale: 40,
+};
+
+export const MATERIAL_PRESETS: Record<Exclude<MaterialPreset, "custom">, MaterialParams> = {
+  board: { ...BASE_MATERIAL },
+  matte: { ...BASE_MATERIAL, roughness: 0.98 },
+  satin: { ...BASE_MATERIAL, roughness: 0.5, metalness: 0.08 },
+  metallic: { ...BASE_MATERIAL, roughness: 0.32, metalness: 0.55 },
+  gloss: { ...BASE_MATERIAL, roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.06, boardColor: "#f2eee6", insideColor: "#f6f1e6" },
+  kraft: { ...BASE_MATERIAL, roughness: 0.92, tint: "#c9a577", boardColor: "#b8935f", insideColor: "#a98550", texture: "fibre", textureStrength: 0.9, textureScale: 30 },
+  softtouch: { ...BASE_MATERIAL, roughness: 0.96, texture: "grain", textureStrength: 0.35, textureScale: 12 },
+};
+
+/** Selecting a preset copies its parameters in, so every value stays editable afterwards. */
+export function applyMaterialPreset(preset: MaterialPreset): Pick<SceneSettings, "material" | "materialParams"> {
+  const source = preset === "custom" ? MATERIAL_PRESETS.board : MATERIAL_PRESETS[preset];
+  return { material: preset, materialParams: { ...source } };
+}
 
 /** Persisted presentation state only; it never changes the dieline or production exports. */
 export interface SceneSettings {
@@ -26,6 +68,17 @@ export interface SceneSettings {
   floor: { visible: boolean; color: string; size: number };
   shadows: boolean;
   material: MaterialPreset;
+  materialParams: MaterialParams;
+  /** Tone-mapping exposure of the whole render. */
+  exposure: number;
+  /** Image-based studio reflections (0 = off). */
+  envLight: number;
+  /** Vertical field of view in degrees. */
+  fov: number;
+  /** Model rotation (degrees) and offset (mm) about the scene axes. */
+  modelRotation: Vec3;
+  modelOffset: Vec3;
+  turntable: boolean;
   showOutsideArtwork: boolean;
   showInsideArtwork: boolean;
   showCutLines: boolean;
@@ -51,6 +104,13 @@ export const DEFAULT_SCENE_SETTINGS: SceneSettings = {
   floor: { visible: true, color: "#d9d6cf", size: 2400 },
   shadows: true,
   material: "board",
+  materialParams: { ...MATERIAL_PRESETS.board },
+  exposure: 1,
+  envLight: 0.35,
+  fov: 40,
+  modelRotation: [0, 0, 0],
+  modelOffset: [0, 0, 0],
+  turntable: false,
   showOutsideArtwork: true,
   showInsideArtwork: true,
   showCutLines: true,
@@ -84,7 +144,24 @@ export function normalizeSceneSettings(value: unknown): SceneSettings {
       position: isVector(light?.position) ? [...light.position] as [number, number, number] : [...fallback.position],
     };
   };
-  const validMaterials: MaterialPreset[] = ["board", "matte", "satin", "metallic"];
+  const validMaterials: MaterialPreset[] = ["board", "matte", "satin", "metallic", "gloss", "kraft", "softtouch", "custom"];
+  const material: MaterialPreset = validMaterials.includes(input.material as MaterialPreset) ? input.material as MaterialPreset : "board";
+  const materialBase = MATERIAL_PRESETS[material === "custom" ? "board" : material];
+  const rawParams = (input as { materialParams?: Partial<MaterialParams> }).materialParams;
+  const validTextures: SurfaceTexture[] = ["none", "grain", "linen", "fibre"];
+  const materialParams: MaterialParams = {
+    roughness: finite(rawParams?.roughness, materialBase.roughness, 0, 1),
+    metalness: finite(rawParams?.metalness, materialBase.metalness, 0, 1),
+    clearcoat: finite(rawParams?.clearcoat, materialBase.clearcoat, 0, 1),
+    clearcoatRoughness: finite(rawParams?.clearcoatRoughness, materialBase.clearcoatRoughness, 0, 1),
+    tint: validColor(rawParams?.tint, materialBase.tint),
+    boardColor: validColor(rawParams?.boardColor, materialBase.boardColor),
+    insideColor: validColor(rawParams?.insideColor, materialBase.insideColor),
+    texture: validTextures.includes(rawParams?.texture as SurfaceTexture) ? rawParams!.texture as SurfaceTexture : materialBase.texture,
+    textureStrength: finite(rawParams?.textureStrength, materialBase.textureStrength, 0, 3),
+    textureScale: finite(rawParams?.textureScale, materialBase.textureScale, 2, 500),
+  };
+  const vector = (v: unknown, fallback: Vec3, limit: number): Vec3 => isVector(v) ? v.map((n) => Math.min(limit, Math.max(-limit, n))) as Vec3 : [...fallback];
   const floor = (input as { floor?: Partial<SceneSettings["floor"]> }).floor;
   return {
     background: validColor(input.background, DEFAULT_SCENE_SETTINGS.background),
@@ -99,7 +176,15 @@ export function normalizeSceneSettings(value: unknown): SceneSettings {
       size: finite(floor?.size, DEFAULT_SCENE_SETTINGS.floor.size, 100, 10000),
     },
     shadows: typeof input.shadows === "boolean" ? input.shadows : true,
-    material: validMaterials.includes(input.material as MaterialPreset) ? input.material as MaterialPreset : "board",
+    material,
+    materialParams,
+    exposure: finite(input.exposure, 1, 0.1, 4),
+    // Projects saved before image-based lighting existed keep their original look.
+    envLight: finite(input.envLight, 0, 0, 3),
+    fov: finite(input.fov, DEFAULT_SCENE_SETTINGS.fov, 10, 100),
+    modelRotation: vector(input.modelRotation, [0, 0, 0], 360),
+    modelOffset: vector(input.modelOffset, [0, 0, 0], 5000),
+    turntable: typeof input.turntable === "boolean" ? input.turntable : false,
     showOutsideArtwork: typeof input.showOutsideArtwork === "boolean" ? input.showOutsideArtwork : true,
     showInsideArtwork: typeof input.showInsideArtwork === "boolean" ? input.showInsideArtwork : true,
     showCutLines: typeof input.showCutLines === "boolean" ? input.showCutLines : true,

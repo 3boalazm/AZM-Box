@@ -1,12 +1,15 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import type { BoxDimensions, DielineLayout, PanelNode } from "../geometry/types";
 import { rect } from "../geometry/shapes";
 import type { PanelTextures } from "../artwork/usePanelTextures";
 import { usePanelTextures } from "../artwork/usePanelTextures";
 import type { ArtworkState } from "../artwork/types";
-import type { SceneSettings, CameraPreset, CameraPose } from "../project/sceneSettings";
+import type { SceneSettings, CameraPreset, CameraPose, MaterialParams } from "../project/sceneSettings";
+import { applyMaterialPreset } from "../project/sceneSettings";
+import { surfaceBumpTexture } from "../artwork/surfaceTextures";
 import { getCameraMouseButtons } from "./cameraControls";
 import type { CameraNavigationMode } from "./cameraControls";
 import Icon from "./Icon";
@@ -35,7 +38,7 @@ function computeHinge(node: PanelNode, parentW: number, parentH: number): HingeI
   }
 }
 
-function PanelMesh({ node, textures, materialFinish, showOutsideArtwork, showInsideArtwork, onSelectPanel }: { node: PanelNode; textures?: PanelTextures; materialFinish: { roughness: number; metalness: number }; showOutsideArtwork: boolean; showInsideArtwork: boolean; onSelectPanel?: (id: string) => void }) {
+function PanelMesh({ node, textures, material, showOutsideArtwork, showInsideArtwork, onSelectPanel }: { node: PanelNode; textures?: PanelTextures; material: MaterialParams; showOutsideArtwork: boolean; showInsideArtwork: boolean; onSelectPanel?: (id: string) => void }) {
   const geometry = useMemo(() => {
     const pts = node.outline ?? rect(node.w, node.h);
     const shape = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)));
@@ -66,27 +69,37 @@ function PanelMesh({ node, textures, materialFinish, showOutsideArtwork, showIns
   // stayed invisible in 3D even after the UV mapping was corrected. Keying the
   // material on the texture's identity makes R3F build a fresh material once the
   // texture exists, so it compiles with the map in place.
-  const outsideKey = textures?.outside.uuid ?? "no-outside";
-  const insideKey = textures?.inside.uuid ?? "no-inside";
+  const bump = useMemo(() => surfaceBumpTexture(material.texture, node.w, node.h, material.textureScale), [material.texture, material.textureScale, node.w, node.h]);
+  useEffect(() => () => bump?.dispose(), [bump]);
+  const finish = {
+    roughness: material.roughness,
+    metalness: material.metalness,
+    clearcoat: material.clearcoat,
+    clearcoatRoughness: material.clearcoatRoughness,
+    bumpMap: bump,
+    bumpScale: bump ? material.textureStrength * 2 : 0,
+  };
+  const outsideKey = `${textures?.outside.uuid ?? "no-outside"}-${bump ? "bump" : "flat"}`;
+  const insideKey = `${textures?.inside.uuid ?? "no-inside"}-${bump ? "bump" : "flat"}`;
 
   return (
     <>
       <mesh geometry={geometry} visible={node.face !== "glue"} castShadow receiveShadow onClick={(event) => { event.stopPropagation(); onSelectPanel?.(node.id); }}>
-        <meshStandardMaterial
+        <meshPhysicalMaterial
           key={outsideKey}
           map={showOutsideArtwork ? textures?.outside : undefined}
-          color={showOutsideArtwork && textures ? "#ffffff" : "#d8cdb8"}
+          color={showOutsideArtwork && textures ? material.tint : material.boardColor}
           side={THREE.FrontSide}
-          {...materialFinish}
+          {...finish}
         />
       </mesh>
       <mesh geometry={geometry} onClick={(event) => { event.stopPropagation(); onSelectPanel?.(node.id); }}>
-        <meshStandardMaterial
+        <meshPhysicalMaterial
           key={insideKey}
           map={showInsideArtwork ? textures?.inside : undefined}
-          color={showInsideArtwork && textures ? "#ffffff" : "#efe6d3"}
+          color={showInsideArtwork && textures ? material.tint : material.insideColor}
           side={THREE.BackSide}
-          {...materialFinish}
+          {...finish}
         />
       </mesh>
     </>
@@ -99,7 +112,7 @@ function PanelGroup({
   parentH,
   foldAmount,
   texturesById,
-  materialFinish,
+  material,
   showOutsideArtwork,
   showInsideArtwork,
   onSelectPanel,
@@ -109,7 +122,7 @@ function PanelGroup({
   parentH: number;
   foldAmount: number;
   texturesById: Map<string, PanelTextures>;
-  materialFinish: { roughness: number; metalness: number };
+  material: MaterialParams;
   showOutsideArtwork: boolean;
   showInsideArtwork: boolean;
   onSelectPanel?: (id: string) => void;
@@ -126,9 +139,9 @@ function PanelGroup({
 
   return (
     <group position={pivot} rotation={rotation}>
-      <PanelMesh node={node} textures={texturesById.get(node.id)} materialFinish={materialFinish} showOutsideArtwork={showOutsideArtwork} showInsideArtwork={showInsideArtwork} onSelectPanel={onSelectPanel} />
+      <PanelMesh node={node} textures={texturesById.get(node.id)} material={material} showOutsideArtwork={showOutsideArtwork} showInsideArtwork={showInsideArtwork} onSelectPanel={onSelectPanel} />
       {node.children.map((child) => (
-        <PanelGroup key={child.id} node={child} parentW={node.w} parentH={node.h} foldAmount={foldAmount} texturesById={texturesById} materialFinish={materialFinish} showOutsideArtwork={showOutsideArtwork} showInsideArtwork={showInsideArtwork} onSelectPanel={onSelectPanel} />
+        <PanelGroup key={child.id} node={child} parentW={node.w} parentH={node.h} foldAmount={foldAmount} texturesById={texturesById} material={material} showOutsideArtwork={showOutsideArtwork} showInsideArtwork={showInsideArtwork} onSelectPanel={onSelectPanel} />
       ))}
     </group>
   );
@@ -136,9 +149,18 @@ function PanelGroup({
 
 type StudioControls = { current: { target: THREE.Vector3; update: () => void } | null };
 
-function CameraRig({ dims, preset, cameraPose, resetKey, controlsRef }: { dims: BoxDimensions; preset: CameraPreset; cameraPose: CameraPose | null; resetKey: number; controlsRef: StudioControls }) {
+function CameraRig({ dims, preset, cameraPose, fov, resetKey, controlsRef, controlsReady, onPresetApplied }: { dims: BoxDimensions; preset: CameraPreset; cameraPose: CameraPose | null; fov: number; resetKey: number; controlsRef: StudioControls; controlsReady: boolean; onPresetApplied: (pose: CameraPose) => void }) {
   const { camera } = useThree();
   useEffect(() => {
+    if (camera instanceof THREE.PerspectiveCamera) {
+      camera.fov = fov;
+      camera.updateProjectionMatrix();
+    }
+  }, [camera, fov]);
+  useEffect(() => {
+    // OrbitControls is lazy-loaded; framing before it exists would be overwritten
+    // when it mounts and snaps the camera to its own default target.
+    if (!controlsReady) return;
     const target = cameraPose ? new THREE.Vector3(...cameraPose.target) : new THREE.Vector3(dims.length / 2, dims.height / 2, -dims.width / 2);
     const radius = Math.max(dims.length, dims.width, dims.height) * 2.5;
     const offsets: Record<CameraPreset, [number, number, number]> = {
@@ -158,7 +180,39 @@ function CameraRig({ dims, preset, cameraPose, resetKey, controlsRef }: { dims: 
       controlsRef.current.target.copy(target);
       controlsRef.current.update();
     }
-  }, [camera, cameraPose, controlsRef, dims.height, dims.length, dims.width, preset, resetKey]);
+    // A preset has no stored pose yet; publish the real one so the numeric camera
+    // fields show true values. Only when none is stored, so this cannot loop.
+    if (!cameraPose) {
+      onPresetApplied({ position: camera.position.toArray() as [number, number, number], target: target.toArray() as [number, number, number], up: camera.up.toArray() as [number, number, number] });
+    }
+  }, [camera, cameraPose, controlsRef, dims.height, dims.length, dims.width, controlsReady, onPresetApplied, preset, resetKey]);
+  return null;
+}
+
+/** Exposure and procedural studio reflections (no network, so it works offline). */
+function SceneTuning({ exposure, envLight }: { exposure: number; envLight: number }) {
+  const { gl, scene } = useThree();
+  useEffect(() => {
+    const generator = new THREE.PMREMGenerator(gl);
+    const room = new RoomEnvironment();
+    const target = generator.fromScene(room, 0.04);
+    scene.environment = target.texture;
+    return () => {
+      scene.environment = null;
+      target.dispose();
+      generator.dispose();
+      room.dispose();
+    };
+  }, [gl, scene]);
+  useEffect(() => { scene.environmentIntensity = envLight; }, [scene, envLight]);
+  useEffect(() => { gl.toneMappingExposure = exposure; }, [gl, exposure]);
+  return null;
+}
+
+function Turntable({ spinRef, enabled }: { spinRef: React.RefObject<THREE.Group | null>; enabled: boolean }) {
+  useFrame((_, delta) => {
+    if (enabled && spinRef.current) spinRef.current.rotation.y += delta * 0.5;
+  });
   return null;
 }
 
@@ -211,8 +265,11 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
   const [navigation, setNavigation] = useState<CameraNavigationMode>("orbit");
   const [spacePan, setSpacePan] = useState(false);
   const [cameraResetKey, setCameraResetKey] = useState(0);
-  const { background, ambient, preset, lights, floor, shadows, material } = sceneSettings;
-  const materialFinish = material === "metallic" ? { roughness: 0.32, metalness: 0.55 } : material === "satin" ? { roughness: 0.5, metalness: 0.08 } : material === "matte" ? { roughness: 0.98, metalness: 0 } : { roughness: 0.85, metalness: 0 };
+  const { background, ambient, preset, lights, floor, shadows, materialParams: material } = sceneSettings;
+  const spinRef = useRef<THREE.Group>(null);
+  const modelCenter: [number, number, number] = [dims.length / 2, dims.height / 2, -dims.width / 2];
+  const rotationRad = sceneSettings.modelRotation.map((deg) => THREE.MathUtils.degToRad(deg)) as [number, number, number];
+  const shadowReach = Math.max(dims.length, dims.width, dims.height) * 3;
   const environmentScale = sceneSettings.environment === "soft" ? 0.82 : sceneSettings.environment === "neutral" ? 0.95 : 1;
   const mouseButtons = useMemo(() => getCameraMouseButtons(navigation, spacePan), [navigation, spacePan]);
   const updateScene = (patch: Partial<SceneSettings>) => onChangeSceneSettings((current) => ({ ...current, ...patch }));
@@ -237,6 +294,18 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
       const pose = pendingCameraPose.current;
       if (pose) onChangeSceneSettings((current) => ({ ...current, cameraPose: pose }));
     }
+  }, [onChangeSceneSettings]);
+  const [controlsReady, setControlsReady] = useState(false);
+  const attachControls = useCallback((controls: StudioControls["current"]) => {
+    controlsRef.current = controls;
+    setControlsReady(!!controls);
+  }, []);
+  const storeAppliedPose = useCallback((pose: CameraPose) => {
+    // Drop any stale pose queued by an earlier camera event; it must not overwrite this one.
+    if (cameraPoseTimer.current !== null) window.clearTimeout(cameraPoseTimer.current);
+    cameraPoseTimer.current = null;
+    pendingCameraPose.current = null;
+    onChangeSceneSettings((current) => (current.cameraPose ? current : { ...current, cameraPose: pose }));
   }, [onChangeSceneSettings]);
   const presets: { id: CameraPreset; label: string }[] = [
     { id: "front", label: "Front" }, { id: "back", label: "Back" }, { id: "left", label: "Left" },
@@ -285,19 +354,29 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
         <ambientLight intensity={ambient * environmentScale} />
         {(["key", "fill", "rim"] as const).map((name) => {
           const light = lights[name];
-          return light.enabled ? <directionalLight key={name} position={light.position} color={light.color} intensity={light.intensity * (name === "key" ? sceneSettings.keyLight : 1) * environmentScale} castShadow={shadows && name === "key"} shadow-mapSize-width={1024} shadow-mapSize-height={1024} /> : null;
+          return light.enabled ? <directionalLight key={name} position={light.position} color={light.color} intensity={light.intensity * (name === "key" ? sceneSettings.keyLight : 1) * environmentScale} castShadow={shadows && name === "key"} shadow-mapSize-width={2048} shadow-mapSize-height={2048} shadow-bias={-0.0004} shadow-normalBias={0.6} shadow-camera-left={-shadowReach} shadow-camera-right={shadowReach} shadow-camera-top={shadowReach} shadow-camera-bottom={-shadowReach} shadow-camera-near={1} shadow-camera-far={shadowReach * 6} /> : null;
         })}
         {floor.visible && <mesh rotation={[-Math.PI / 2, 0, 0]} position={[dims.length / 2, -2, -dims.width / 2]} receiveShadow>
           <planeGeometry args={[floor.size, floor.size]} />
           <meshStandardMaterial color={floor.color} roughness={0.95} metalness={0} />
         </mesh>}
-        <group ref={(g) => { groupRef.current = g; if (g && onSceneReady) onSceneReady(g); }}>
-          <PanelGroup node={root} parentW={root.w} parentH={root.h} foldAmount={foldAmount} texturesById={texturesById} materialFinish={materialFinish} showOutsideArtwork={sceneSettings.showOutsideArtwork !== false} showInsideArtwork={sceneSettings.showInsideArtwork !== false} onSelectPanel={onSelectPanel} />
+        <group position={[modelCenter[0] + sceneSettings.modelOffset[0], modelCenter[1] + sceneSettings.modelOffset[1], modelCenter[2] + sceneSettings.modelOffset[2]]}>
+          <group ref={spinRef}>
+            <group rotation={rotationRad}>
+              <group position={[-modelCenter[0], -modelCenter[1], -modelCenter[2]]}>
+                <group ref={(g) => { groupRef.current = g; if (g && onSceneReady) onSceneReady(g); }}>
+                  <PanelGroup node={root} parentW={root.w} parentH={root.h} foldAmount={foldAmount} texturesById={texturesById} material={material} showOutsideArtwork={sceneSettings.showOutsideArtwork !== false} showInsideArtwork={sceneSettings.showInsideArtwork !== false} onSelectPanel={onSelectPanel} />
+                </group>
+              </group>
+            </group>
+          </group>
         </group>
-        <CameraRig dims={dims} preset={preset} cameraPose={sceneSettings.cameraPose} resetKey={cameraResetKey} controlsRef={controlsRef} />
+        <Turntable spinRef={spinRef} enabled={sceneSettings.turntable} />
+        <SceneTuning exposure={sceneSettings.exposure} envLight={sceneSettings.envLight} />
+        <CameraRig dims={dims} preset={preset} cameraPose={sceneSettings.cameraPose} fov={sceneSettings.fov} resetKey={cameraResetKey} controlsRef={controlsRef} controlsReady={controlsReady} onPresetApplied={storeAppliedPose} />
         <TransparentCapture onReady={onTransparentExportReady} />
         <Suspense fallback={null}>
-          <OrbitControls ref={controlsRef as never} makeDefault mouseButtons={mouseButtons} onChange={reportCameraChange} enableDamping dampingFactor={0.08} enableRotate enablePan enableZoom minDistance={5} maxDistance={20000} minPolarAngle={0} maxPolarAngle={Math.PI} minAzimuthAngle={-Infinity} maxAzimuthAngle={Infinity} />
+          <OrbitControls ref={attachControls as never} makeDefault mouseButtons={mouseButtons} onChange={reportCameraChange} enableDamping dampingFactor={0.08} enableRotate enablePan enableZoom minDistance={5} maxDistance={20000} minPolarAngle={0} maxPolarAngle={Math.PI} minAzimuthAngle={-Infinity} maxAzimuthAngle={Infinity} />
         </Suspense>
       </Canvas>
       <nav className="camera-toolbar" aria-label="3D camera navigation">
@@ -323,7 +402,7 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
             <input type="color" aria-label={`${name} light color`} value={lights[name].color} onChange={(event) => onChangeSceneSettings((current) => ({ ...current, lights: { ...current.lights, [name]: { ...current.lights[name], color: event.target.value } } }))}/>
           </div>)}</div>
           <div className="studio-section"><span className="studio-label">Surface & floor</span>
-            <label className="studio-select-label">Appearance <select value={material} onChange={(event) => updateScene({ material: event.target.value as SceneSettings["material"] })}><option value="board">Folding board</option><option value="matte">Matte</option><option value="satin">Satin</option><option value="metallic">Metallic</option></select></label>
+            <label className="studio-select-label">Appearance <select value={sceneSettings.material} onChange={(event) => updateScene(applyMaterialPreset(event.target.value as SceneSettings["material"]))}><option value="board">Folding board</option><option value="matte">Matte</option><option value="satin">Satin</option><option value="metallic">Metallic</option><option value="gloss">Gloss varnish</option><option value="kraft">Kraft</option><option value="softtouch">Soft-touch</option><option value="custom">Custom</option></select></label>
             <label className="studio-check-row"><input type="checkbox" checked={floor.visible} onChange={(event) => onChangeSceneSettings((current) => ({ ...current, floor: { ...current.floor, visible: event.target.checked } }))}/> Ground plane</label>
             <label className="studio-check-row"><input type="checkbox" checked={shadows} onChange={(event) => updateScene({ shadows: event.target.checked })}/> Shadows</label>
             <label className="studio-check-row"><input type="checkbox" checked={sceneSettings.transparentBackground} onChange={(event) => updateScene({ transparentBackground: event.target.checked })}/> Transparent background</label>

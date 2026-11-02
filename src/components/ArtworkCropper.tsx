@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { moveCropRect, resizeCropRect } from "../artwork/cropGeometry";
 import type { CropDragMode } from "../artwork/cropGeometry";
+import { cropSvgDataUrl, isSvgSource } from "../artwork/svgArt";
 
 interface Props {
   src: string;
@@ -78,6 +79,11 @@ export default function ArtworkCropper({ src, onCancel, onApply }: Props) {
     setBusy(true);
     setError("");
     try {
+      // Vector artwork is cropped by moving its viewBox, so it never turns into pixels.
+      if (isSvgSource(src)) {
+        onApply(cropSvgDataUrl(src, { left, top, width, height }));
+        return;
+      }
       const image = new Image();
       image.src = src;
       await image.decode();

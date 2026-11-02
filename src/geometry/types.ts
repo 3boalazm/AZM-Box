@@ -24,7 +24,9 @@ export type FaceRole =
   | "flap-bottom-front"
   | "flap-bottom-back"
   | "flap-bottom-left"
-  | "flap-bottom-right";
+  | "flap-bottom-right"
+  /** A face the user added by hand with the + handles. */
+  | "extra";
 
 /** A 2D point in millimeters, local to the panel's own coordinate frame. */
 export type Point = [number, number];
@@ -99,6 +101,34 @@ export interface BoxDimensions {
   endFlapRight?: number;
   /** Depth of a style-specific lid/tuck panel (mailer lid tuck). */
   lidDepth?: number;
+  /**
+   * Board thickness (caliper) in mm. 0 / undefined = no compensation. Folding a
+   * sheet of board around a box wraps material around each crease, so panels
+   * measured crease-to-crease on the neutral axis must be one caliper wider than
+   * the inside size (or one narrower than the outside size) or the finished box
+   * comes out too tight.
+   */
+  materialThickness?: number;
+  /** Whether length/width/height are the finished INSIDE (default) or OUTSIDE size. */
+  dimensionBasis?: "internal" | "external";
+  /** Faces the user removed from, or added to, the template (see panelEdits.ts). */
+  panelEdits?: PanelEdits;
+}
+
+/** A rectangular face the user attached to a free edge of another face. */
+export interface AddedFace {
+  id: string;
+  /** Id of the face it is hinged to — a template face or another added face. */
+  parentId: string;
+  edge: HingeEdge;
+  /** How far the face reaches away from its hinge, mm. */
+  depth: number;
+}
+
+export interface PanelEdits {
+  /** Ids of template faces to leave out, together with everything hinged beyond them. */
+  removed?: string[];
+  added?: AddedFace[];
 }
 
 export type BoxStyleId =

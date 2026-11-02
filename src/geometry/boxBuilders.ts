@@ -1,5 +1,6 @@
 import type { BoxDimensions, BoxStyleDefinition, BoxStyleId, FaceRole, FlapWall, HingeEdge, PanelNode } from "./types";
 import { FLAP_WALLS } from "./types";
+import { applyPanelEdits, assignStableIds } from "./panelEdits";
 import { boundsOf, dustFlap, lockTab, rect, roundedTuckFlap, smallDustFlap, tuckFlap } from "./shapes";
 
 let uid = 0;
@@ -554,10 +555,33 @@ function applyCustomFlaps(root: PanelNode, dims: BoxDimensions): PanelNode {
   return root;
 }
 
+/**
+ * Converts the entered box size into the crease-to-crease panel sizes the
+ * builders draw. Every panel sits between two creases on the board's neutral
+ * axis, which is half a caliper outside the inside face on each side:
+ *   neutral = inside + t  =  outside - t
+ * so inside sizes grow by t and outside sizes shrink by t. With no thickness set
+ * the dimensions pass through untouched.
+ */
+export function compensateForMaterial(dims: BoxDimensions): BoxDimensions {
+  const t = dims.materialThickness ?? 0;
+  if (!(t > 0)) return dims;
+  const delta = dims.dimensionBasis === "external" ? -t : t;
+  const grow = (v: number) => Math.max(1, v + delta);
+  return { ...dims, length: grow(dims.length), width: grow(dims.width), height: grow(dims.height) };
+}
+
 export function getBoxStyle(id: BoxStyleId): BoxStyleDefinition {
   const found = BOX_STYLES.find((s) => s.id === id);
   if (!found) throw new Error(`Unknown box style: ${id}`);
-  return { ...found, build: (dims) => applyCustomFlaps(found.build(dims), dims) };
+  return {
+    ...found,
+    build: (dims) => {
+      const sized = compensateForMaterial(dims);
+      // Ids are made structural before the hand edits run, because those edits name faces by id.
+      return applyPanelEdits(assignStableIds(applyCustomFlaps(found.build(sized), sized)), sized.panelEdits);
+    },
+  };
 }
 
 export function panelBounds(node: PanelNode) {

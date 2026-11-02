@@ -1,18 +1,26 @@
-import { useEffect, useMemo, useState } from "react";
-import { BOX_STYLES, getBoxStyle } from "../geometry/boxBuilders";
-import { computeFlatLayout } from "../geometry/layout";
-import type { BoxDimensions, BoxStyleId, FaceRole, FlapWall } from "../geometry/types";
+import { useEffect, useState } from "react";
+import { BOX_STYLES } from "../geometry/boxBuilders";
+import type { BoxDimensions, BoxStyleId, DielineLayout, FaceRole, FlapWall } from "../geometry/types";
 import { FLAP_WALLS } from "../geometry/types";
+import { clearPanelEdits, panelEditCount, setAddedFaceDepth } from "../geometry/panelEdits";
+import { mmToUnit, setPreferences, unitToMm, usePreferences } from "../lib/preferences";
+import type { Unit } from "../lib/preferences";
+import { useT } from "../lib/i18n";
 
 interface Props {
   boxStyleId: BoxStyleId;
   dims: BoxDimensions;
+  /** The flat layout already computed by App for this style + dims. */
+  layout: DielineLayout;
   onChangeStyle: (id: BoxStyleId) => void;
   onChangeDims: (dims: BoxDimensions) => void;
   /** Face of the panel just clicked in the 2D view, so its control can flash. */
   highlightFace?: FaceRole;
   /** Bumped on every panel click so re-clicking the same panel replays the flash. */
   highlightNonce?: number;
+  /** The face selected on the dieline, if any. */
+  selectedPanelId?: string | null;
+  onRemoveFace?: (panelId: string) => void;
 }
 
 /**
@@ -39,6 +47,17 @@ function controlIdForFace(face: FaceRole): string | null {
   }
 }
 
+/** Common board calipers (mm). Typical values; check your supplier's data sheet. */
+const BOARD_PRESETS: { label: string; thickness: number }[] = [
+  { label: "Folding carton 300 gsm", thickness: 0.4 },
+  { label: "Folding carton 400 gsm", thickness: 0.55 },
+  { label: "Rigid / greyboard 1 mm", thickness: 1 },
+  { label: "E-flute corrugated", thickness: 1.5 },
+  { label: "B-flute corrugated", thickness: 3 },
+  { label: "C-flute corrugated", thickness: 4 },
+  { label: "BC double wall", thickness: 7 },
+];
+
 /**
  * A numeric field that can be freely cleared and retyped.
  *
@@ -47,6 +66,9 @@ function controlIdForFace(face: FaceRole): string | null {
  * keystroke — which is what this used to do — meant you could never delete the
  * existing digits to type new ones: erasing "18" snapped straight back to the
  * minimum. The clamped number is committed on blur or on Enter instead.
+ *
+ * `value`, `min` and `max` are always millimetres; the text shown and typed is in
+ * the user's chosen unit.
  */
 const MAX_DIMENSION_MM = 5000;
 
@@ -68,24 +90,25 @@ function Field({
   /** When true this field plays the brief highlight animation. */
   flash?: boolean;
 }) {
-  const [draft, setDraft] = useState(String(value));
+  const { unit } = usePreferences();
+  const [draft, setDraft] = useState(String(mmToUnit(value, unit)));
   const [editing, setEditing] = useState(false);
 
   // Keep in sync when the value changes from elsewhere (style switch, reset...)
   // but never yank the text out from under the user mid-edit.
   useEffect(() => {
-    if (!editing) setDraft(String(value));
-  }, [value, editing]);
+    if (!editing) setDraft(String(mmToUnit(value, unit)));
+  }, [value, editing, unit]);
 
   const commit = () => {
     setEditing(false);
     const n = Number(draft);
     if (draft.trim() === "" || !Number.isFinite(n)) {
-      setDraft(String(value)); // nothing usable typed — put the old value back
+      setDraft(String(mmToUnit(value, unit))); // nothing usable typed — put the old value back
       return;
     }
-    const clamped = Math.min(max, Math.max(min, n));
-    setDraft(String(clamped));
+    const clamped = Math.min(max, Math.max(min, unitToMm(n, unit)));
+    setDraft(String(mmToUnit(clamped, unit)));
     if (clamped !== value) onChange(clamped);
   };
 
@@ -94,8 +117,9 @@ function Field({
       <span>{label}</span>
       <input
         type="number"
-        min={min}
-        max={max}
+        step="any"
+        min={mmToUnit(min, unit)}
+        max={mmToUnit(max, unit)}
         value={draft}
         onFocus={() => setEditing(true)}
         onChange={(e) => {
@@ -119,7 +143,9 @@ const WALL_LABELS: Record<FlapWall, string> = {
   right: "Right wall flap",
 };
 
-export default function Sidebar({ boxStyleId, dims, onChangeStyle, onChangeDims, highlightFace, highlightNonce }: Props) {
+export default function Sidebar({ boxStyleId, dims, layout, onChangeStyle, onChangeDims, highlightFace, highlightNonce, selectedPanelId, onRemoveFace }: Props) {
+  const t = useT();
+  const { unit } = usePreferences();
   const style = BOX_STYLES.find((s) => s.id === boxStyleId)!;
 
   // Which control is currently flashing. Cleared on a timer so the highlight is a
@@ -138,7 +164,6 @@ export default function Sidebar({ boxStyleId, dims, onChangeStyle, onChangeDims,
     };
   }, [highlightFace, highlightNonce]);
 
-  const layout = useMemo(() => computeFlatLayout(getBoxStyle(boxStyleId).build(dims)), [boxStyleId, dims]);
   const wallPanel = (wall: FlapWall) => layout.panels.find((panel) => panel.face === wall);
   const flapPanel = (edge: "top" | "bottom", wall: FlapWall) => layout.panels.find((panel) => panel.face === `flap-${edge}-${wall}`);
   const flapDepth = (edge: "top" | "bottom", wall: FlapWall) => {
@@ -153,40 +178,75 @@ export default function Sidebar({ boxStyleId, dims, onChangeStyle, onChangeDims,
   const setFlapShape = (wall: FlapWall, value: NonNullable<BoxDimensions["flapShapes"]>[FlapWall]) =>
     onChangeDims({ ...dims, flapShapes: { ...dims.flapShapes, [wall]: value } });
 
+  const thickness = dims.materialThickness ?? 0;
+  const basis = dims.dimensionBasis ?? "internal";
+  const matchingPreset = BOARD_PRESETS.find((preset) => preset.thickness === thickness);
+  const front = wallPanel("front");
+  const left = wallPanel("left");
+  const selectedFace = layout.panels.find((panel) => panel.id === selectedPanelId);
+  const selectedAdded = dims.panelEdits?.added?.find((face) => face.id === selectedPanelId);
+  const faceEdits = panelEditCount(dims);
+  const fmt = (mm: number) => `${mmToUnit(mm, unit)} ${unit}`;
+
   return (
-    <aside className="panel sidebar inspector-panel" aria-label="Box structure settings">
+    <aside className="panel sidebar inspector-panel" aria-label={t("Box structure settings")}>
       <header className="inspector-heading">
-        <div><span className="eyebrow">PARAMETRIC BOX</span><h2>Structure</h2></div>
-        <span className="unit-pill">mm</span>
+        <div><span className="eyebrow">{t("PARAMETRIC BOX")}</span><h2>{t("Structure")}</h2></div>
+        <select className="unit-pill" aria-label={t("Units")} value={unit} onChange={(e) => setPreferences({ unit: e.target.value as Unit })}>
+          <option value="mm">mm</option><option value="cm">cm</option><option value="in">in</option>
+        </select>
       </header>
 
       <details className="inspector-group" open>
-        <summary className="inspector-summary"><span>Template</span><span className="summary-meta">01</span></summary>
+        <summary className="inspector-summary"><span>{t("Template")}</span><span className="summary-meta">01</span></summary>
         <div className="inspector-content">
-          <label className="control-label" htmlFor="box-style">Box style</label>
+          <label className="control-label" htmlFor="box-style">{t("Box style")}</label>
           <select id="box-style" className="control-select" value={boxStyleId} onChange={(e) => onChangeStyle(e.target.value as BoxStyleId)}>
-            {BOX_STYLES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            {BOX_STYLES.map((s) => <option key={s.id} value={s.id}>{t(s.label)}</option>)}
           </select>
-          <p className="control-hint">{style.description}</p>
+          <p className="control-hint">{t(style.description)}</p>
         </div>
       </details>
 
       <details className="inspector-group" open>
-        <summary className="inspector-summary"><span>Overall dimensions</span><span className="summary-meta">02</span></summary>
+        <summary className="inspector-summary"><span>{t("Overall dimensions")}</span><span className="summary-meta">02</span></summary>
         <div className="inspector-content">
           <div className="dimension-grid">
-            <Field label="Length · L" value={dims.length} onChange={(v) => onChangeDims({ ...dims, length: v })} flash={flashId === "length"} />
-            <Field label="Width · W" value={dims.width} onChange={(v) => onChangeDims({ ...dims, width: v })} flash={flashId === "width"} />
-            <Field label="Height · H" value={dims.height} onChange={(v) => onChangeDims({ ...dims, height: v })} flash={flashId === "height"} />
+            <Field label={t("Length · L")} value={dims.length} onChange={(v) => onChangeDims({ ...dims, length: v })} flash={flashId === "length"} />
+            <Field label={t("Width · W")} value={dims.width} onChange={(v) => onChangeDims({ ...dims, width: v })} flash={flashId === "width"} />
+            <Field label={t("Height · H")} value={dims.height} onChange={(v) => onChangeDims({ ...dims, height: v })} flash={flashId === "height"} />
           </div>
-          <span className="control-hint">Finished internal box size</span>
+          <span className="control-hint">{basis === "internal" ? t("Finished internal box size") : t("Finished external box size")}</span>
         </div>
       </details>
 
       <details className="inspector-group" open>
-        <summary className="inspector-summary"><span>Flap geometry</span><span className="summary-meta">03</span></summary>
+        <summary className="inspector-summary"><span>{t("Board material")}</span><span className="summary-meta">{thickness > 0 ? fmt(thickness) : t("Off")}</span></summary>
+        <div className="inspector-content">
+          <label className="control-label" htmlFor="board-preset">{t("Board type")}</label>
+          <select id="board-preset" className="control-select" value={matchingPreset ? String(matchingPreset.thickness) : thickness === 0 ? "0" : "custom"} onChange={(e) => {
+            if (e.target.value !== "custom") onChangeDims({ ...dims, materialThickness: Number(e.target.value) });
+          }}>
+            <option value="0">{t("No compensation")}</option>
+            {BOARD_PRESETS.map((preset) => <option key={preset.label} value={String(preset.thickness)}>{t(preset.label)} · {preset.thickness} mm</option>)}
+            {!matchingPreset && thickness > 0 && <option value="custom">{t("Custom")}</option>}
+          </select>
+          <Field label={t("Thickness (caliper)")} value={thickness} min={0} max={50} onChange={(v) => onChangeDims({ ...dims, materialThickness: v })} hint={t("Folding wraps board around each crease. Panels are drawn one caliper wider than the inside size so the finished box is not too tight.")} />
+          <label className="control-label" htmlFor="dimension-basis">{t("L / W / H are the")}</label>
+          <select id="dimension-basis" className="control-select" value={basis} onChange={(e) => onChangeDims({ ...dims, dimensionBasis: e.target.value as "internal" | "external" })}>
+            <option value="internal">{t("Inside size (what it holds)")}</option>
+            <option value="external">{t("Outside size (what you measure)")}</option>
+          </select>
+          {thickness > 0 && front && left
+            ? <p className="control-hint">{t("Front/back panel {a}, side panel {b} — each crease-to-crease.", { a: fmt(front.w), b: fmt(left.w) })}</p>
+            : <p className="control-hint">{t("Set the board thickness to compensate folds. Leave off for the nominal sizes.")}</p>}
+        </div>
+      </details>
+
+      <details className="inspector-group" open>
+        <summary className="inspector-summary"><span>{t("Flap geometry")}</span><span className="summary-meta">03</span></summary>
         <div className="inspector-content flap-inspector">
-          <p className="control-hint">Set each edge independently. Use 0 mm to remove a flap.</p>
+          <p className="control-hint">{t("Set each edge independently. Use 0 mm to remove a flap.")}</p>
           {FLAP_WALLS.map((wall) => {
             const parent = wallPanel(wall);
             const topDepth = flapDepth("top", wall);
@@ -195,21 +255,21 @@ export default function Sidebar({ boxStyleId, dims, onChangeStyle, onChangeDims,
             const addedDepth = Math.max(10, Math.round((parent?.w ?? dims.length) * 0.35));
             return (
               <details className="flap-wall" key={wall}>
-                <summary><span>{WALL_LABELS[wall]}</span><span className="flap-size-summary">{topDepth} / {bottomDepth} mm</span></summary>
+                <summary><span>{t(WALL_LABELS[wall])}</span><span className="flap-size-summary">{mmToUnit(topDepth, unit)} / {mmToUnit(bottomDepth, unit)} {unit}</span></summary>
                 <div className="flap-wall-content">
                   <div className="flap-pair">
-                    <Field label="Top depth" value={topDepth} min={0} onChange={(v) => setFlapDepth("top", wall, v)} flash={flashId === `flap-${wall}`} />
-                    <button type="button" className="flap-remove" aria-label={topDepth > 0 ? `Remove top flap on ${WALL_LABELS[wall]}` : `Add top flap on ${WALL_LABELS[wall]}`} onClick={() => setFlapDepth("top", wall, topDepth > 0 ? 0 : addedDepth)}>{topDepth > 0 ? "Remove" : "+ Add"}</button>
+                    <Field label={t("Top depth")} value={topDepth} min={0} onChange={(v) => setFlapDepth("top", wall, v)} flash={flashId === `flap-${wall}`} />
+                    <button type="button" className="flap-remove" aria-label={topDepth > 0 ? `Remove top flap on ${WALL_LABELS[wall]}` : `Add top flap on ${WALL_LABELS[wall]}`} onClick={() => setFlapDepth("top", wall, topDepth > 0 ? 0 : addedDepth)}>{topDepth > 0 ? t("Remove") : t("+ Add")}</button>
                   </div>
                   <div className="flap-pair">
-                    <Field label="Bottom depth" value={bottomDepth} min={0} onChange={(v) => setFlapDepth("bottom", wall, v)} flash={flashId === `flap-${wall}`} />
-                    <button type="button" className="flap-remove" aria-label={bottomDepth > 0 ? `Remove bottom flap on ${WALL_LABELS[wall]}` : `Add bottom flap on ${WALL_LABELS[wall]}`} onClick={() => setFlapDepth("bottom", wall, bottomDepth > 0 ? 0 : addedDepth)}>{bottomDepth > 0 ? "Remove" : "+ Add"}</button>
+                    <Field label={t("Bottom depth")} value={bottomDepth} min={0} onChange={(v) => setFlapDepth("bottom", wall, v)} flash={flashId === `flap-${wall}`} />
+                    <button type="button" className="flap-remove" aria-label={bottomDepth > 0 ? `Remove bottom flap on ${WALL_LABELS[wall]}` : `Add bottom flap on ${WALL_LABELS[wall]}`} onClick={() => setFlapDepth("bottom", wall, bottomDepth > 0 ? 0 : addedDepth)}>{bottomDepth > 0 ? t("Remove") : t("+ Add")}</button>
                   </div>
                   <div className="flap-options">
-                    <Field label="Width" value={flapWidth(wall)} min={1} max={maxWidth} onChange={(v) => setFlapWidth(wall, Math.min(maxWidth, v))} hint={`Centered along wall; maximum ${maxWidth} mm.`} />
-                    <label className="field"><span>Profile</span>
+                    <Field label={t("Width")} value={flapWidth(wall)} min={1} max={maxWidth} onChange={(v) => setFlapWidth(wall, Math.min(maxWidth, v))} hint={`Centered along wall; maximum ${maxWidth} mm.`} />
+                    <label className="field"><span>{t("Profile")}</span>
                       <select aria-label={`${WALL_LABELS[wall]} profile`} value={dims.flapShapes?.[wall] ?? "default"} onChange={(event) => setFlapShape(wall, event.target.value as NonNullable<BoxDimensions["flapShapes"]>[FlapWall])}>
-                        <option value="default">Default</option><option value="straight">Straight</option><option value="dust">Dust flap</option><option value="tuck">Tuck / lock</option><option value="lock">Lock tab</option>
+                        <option value="default">{t("Default")}</option><option value="straight">{t("Straight")}</option><option value="dust">{t("Dust flap")}</option><option value="tuck">{t("Tuck / lock")}</option><option value="lock">{t("Lock tab")}</option>
                       </select>
                     </label>
                   </div>
@@ -221,16 +281,34 @@ export default function Sidebar({ boxStyleId, dims, onChangeStyle, onChangeDims,
       </details>
 
       <details className="inspector-group">
-        <summary className="inspector-summary"><span>End closures</span><span className="summary-meta">04</span></summary>
+        <summary className="inspector-summary"><span>{t("End closures")}</span><span className="summary-meta">04</span></summary>
         <div className="inspector-content">
-          <p className="control-hint">Tabs at each end of the unfolded strip.</p>
-          <Field label="Right glue tab" value={dims.endFlapRight ?? 0} min={0} onChange={(v) => onChangeDims({ ...dims, endFlapRight: v })} hint="The manufacturer's glue tab that bonds the tube closed." flash={flashId === "endFlapRight"} />
-          <Field label="Left end tab" value={dims.endFlapLeft ?? 0} min={0} onChange={(v) => onChangeDims({ ...dims, endFlapLeft: v })} hint="Optional matching tab; set 0 mm for none." />
-          {boxStyleId === "mailer" && <Field label="Lid tuck depth" value={Math.round(dims.lidDepth ?? dims.height * 0.9)} min={1} onChange={(v) => onChangeDims({ ...dims, lidDepth: v })} />}
+          <p className="control-hint">{t("Tabs at each end of the unfolded strip.")}</p>
+          <Field label={t("Right glue tab")} value={dims.endFlapRight ?? 0} min={0} onChange={(v) => onChangeDims({ ...dims, endFlapRight: v })} hint={t("The manufacturer's glue tab that bonds the tube closed.")} flash={flashId === "endFlapRight"} />
+          <Field label={t("Left end tab")} value={dims.endFlapLeft ?? 0} min={0} onChange={(v) => onChangeDims({ ...dims, endFlapLeft: v })} hint={t("Optional matching tab; set 0 mm for none.")} />
+          {boxStyleId === "mailer" && <Field label={t("Lid tuck depth")} value={Math.round(dims.lidDepth ?? dims.height * 0.9)} min={1} onChange={(v) => onChangeDims({ ...dims, lidDepth: v })} />}
         </div>
       </details>
 
-      <button className="reset-control" type="button" onClick={() => onChangeDims({ ...style.defaultDimensions })}>Reset dimensions to template</button>
+      <details className="inspector-group" open>
+        <summary className="inspector-summary"><span>{t("Faces")}</span><span className="summary-meta">{faceEdits > 0 ? t("{n} edited", { n: faceEdits }) : String(layout.panels.length).padStart(2, "0")}</span></summary>
+        <div className="inspector-content">
+          <p className="control-hint">{t("Click + on a free edge of the dieline to add a face there. Select a face, then − to remove it.")}</p>
+          {selectedFace
+            ? <div className="panel-target"><span className="target-dot"/><span>{selectedFace.name}</span><span className="target-size">{fmt(selectedFace.w)} × {fmt(selectedFace.h)}</span></div>
+            : <p className="empty-note">{t("Select a face on the dieline to resize or remove it.")}</p>}
+          {selectedAdded && <Field label={t("Face depth")} value={selectedAdded.depth} min={1} onChange={(v) => onChangeDims(setAddedFaceDepth(dims, selectedAdded.id, v))} hint={t("How far the added face reaches from the edge it is hinged to.")} />}
+          {selectedFace && onRemoveFace && layout.panels.length > 1 && <button type="button" className="flap-remove face-remove" onClick={() => onRemoveFace(selectedFace.id)}>− {t("Remove this face")}</button>}
+          {faceEdits > 0 && <button type="button" className="text-action" onClick={() => onChangeDims(clearPanelEdits(dims))}>{t("Restore the template faces")}</button>}
+        </div>
+      </details>
+
+      <button className="reset-control" type="button" onClick={() => onChangeDims({
+        ...style.defaultDimensions,
+        // The board and how the box was measured belong to the project, not the template.
+        ...(dims.materialThickness !== undefined ? { materialThickness: dims.materialThickness } : {}),
+        ...(dims.dimensionBasis !== undefined ? { dimensionBasis: dims.dimensionBasis } : {}),
+      })}>{t("Reset dimensions to template")}</button>
     </aside>
   );
 }

@@ -29,8 +29,13 @@ export interface PaginationPlan {
  * seams are what let you line the printed sheets up when taping them together).
  */
 export function planA4Pages(bounds: { width: number; height: number }, marginMm = 10): PaginationPlan {
-  const usablePortrait = { width: A4_MM.width - marginMm * 2, height: A4_MM.height - marginMm * 2 };
-  const usableLandscape = { width: A4_MM.height - marginMm * 2, height: A4_MM.width - marginMm * 2 };
+  return planPages(bounds, marginMm, A4_MM);
+}
+
+/** Same as planA4Pages for any paper; `paper` is the portrait size in mm. */
+export function planPages(bounds: { width: number; height: number }, marginMm: number, paper: { width: number; height: number }): PaginationPlan {
+  const usablePortrait = { width: paper.width - marginMm * 2, height: paper.height - marginMm * 2 };
+  const usableLandscape = { width: paper.height - marginMm * 2, height: paper.width - marginMm * 2 };
 
   const fitsPortrait = bounds.width <= usablePortrait.width && bounds.height <= usablePortrait.height;
   const fitsLandscape = bounds.width <= usableLandscape.width && bounds.height <= usableLandscape.height;

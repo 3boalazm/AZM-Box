@@ -2,7 +2,7 @@ import { jsPDF } from "jspdf";
 import "svg2pdf.js";
 import type { DielineLayout } from "./types";
 import { generateDielineSVG } from "./svgExport";
-import { planA4Pages } from "./paginate";
+import { A4_MM, planPages } from "./paginate";
 
 const MARGIN_MM = 10;
 // Extra room shown around each tile's true content so the corner crop-mark ticks
@@ -24,7 +24,20 @@ export interface PdfExportOptions {
    * sheet for every tile.
    */
   insideArtworkDataUrl?: string;
+  /** Artwork as SVG markup (keeps SVG sources vector). Wins over the matching data URL. */
+  outsideArtworkMarkup?: string;
+  insideArtworkMarkup?: string;
   title?: string;
+  /** Portrait paper size in mm. Defaults to A4. */
+  paper?: { width: number; height: number };
+  /** Blank margin around the printable area, mm. */
+  marginMm?: number;
+  /** Area drawn around the trim edge, mm. */
+  bleedMm?: number;
+  /** Trim guide + corner crop marks. Defaults to on. */
+  cropMarks?: boolean;
+  /** Print the mirrored inside sheet too. Defaults to on. */
+  includeInside?: boolean;
   /** Overlay double-arrow measurements (overall size + every panel), for mockups/tests. */
   dimensions?: boolean;
 }
@@ -62,22 +75,30 @@ async function embedSvg(doc: jsPDF, svgString: string, x: number, y: number, wid
  * print duplex, cut once, and both faces are already right where they should be.
  */
 export async function exportDielinePDF(layout: DielineLayout, opts: PdfExportOptions = {}): Promise<Blob> {
-  const { outsideArtworkDataUrl, insideArtworkDataUrl, title = "Dieline", dimensions = false } = opts;
+  const { outsideArtworkDataUrl, insideArtworkDataUrl, title = "Dieline", dimensions = false, paper = A4_MM, cropMarks = true } = opts;
   // ALWAYS emit both faces: an outside page and an inside page, each with its own
   // cut/crease lines, whether or not the inside carries artwork yet. A print run
   // needs the inside sheet regardless, and getting a consistent 2-page (or 2-per-
   // tile) document means the duplex setup never changes between exports.
-  const hasInside = true;
-  const marginMm = dimensions ? DIMENSION_MARGIN_MM : MARGIN_MM;
-  const bleedMm = dimensions ? DIMENSION_BLEED_MM : BLEED_MM;
-  const plan = planA4Pages(layout.bounds, marginMm);
-  const pageFormat = "a4" as const;
+  const hasInside = opts.includeInside ?? true;
+  // The bleed view has to fit inside the blank margin, and crop-mark ticks and
+  // dimension arrows need a minimum amount of room or they would be clipped.
+  const requestedBleed = opts.bleedMm ?? BLEED_MM;
+  const bleedMm = Math.max(requestedBleed, cropMarks ? BLEED_MM : 0, dimensions ? DIMENSION_BLEED_MM : 0);
+  const marginMm = Math.max(opts.marginMm ?? MARGIN_MM, bleedMm, dimensions ? DIMENSION_MARGIN_MM : 0);
+  const plan = planPages(layout.bounds, marginMm, paper);
+  const pageFormat: [number, number] = [paper.width, paper.height];
   const pageOrientation = plan.orientation === "landscape" ? "l" : "p";
-  const pageH = pageOrientation === "l" ? 210 : 297;
+  const pageH = pageOrientation === "l" ? paper.width : paper.height;
 
   const doc = new jsPDF({ orientation: pageOrientation, unit: "mm", format: pageFormat });
 
-  const renderSide = async (tile: (typeof plan.pages)[number], side: "outside" | "inside", artworkDataUrl: string | undefined, isFirstPageOfDoc: boolean) => {
+  const renderSide = async (
+    tile: (typeof plan.pages)[number],
+    side: "outside" | "inside",
+    artwork: { artworkDataUrl?: string; artworkMarkup?: string },
+    isFirstPageOfDoc: boolean,
+  ) => {
     if (!isFirstPageOfDoc) doc.addPage(pageFormat, pageOrientation);
 
     // Single page: center the artwork on the sheet. Tiled: anchor every tile at the
@@ -98,11 +119,11 @@ export async function exportDielinePDF(layout: DielineLayout, opts: PdfExportOpt
     };
 
     const svgString = generateDielineSVG(layout, {
-      artworkDataUrl,
+      ...artwork,
       title,
       viewBox: bleedView,
       outputSizeMm: { width: bleedView.width, height: bleedView.height },
-      trimGuide: true,
+      trimGuide: cropMarks,
       dimensions,
       // "Flip on long edge" turns the sheet about an axis parallel to its 297mm
       // edge, so which way the inside page has to be mirrored depends on how the
@@ -132,9 +153,9 @@ export async function exportDielinePDF(layout: DielineLayout, opts: PdfExportOpt
 
   for (let i = 0; i < plan.pages.length; i++) {
     const tile = plan.pages[i];
-    await renderSide(tile, "outside", outsideArtworkDataUrl, i === 0);
+    await renderSide(tile, "outside", { artworkDataUrl: outsideArtworkDataUrl, artworkMarkup: opts.outsideArtworkMarkup }, i === 0);
     if (hasInside) {
-      await renderSide(tile, "inside", insideArtworkDataUrl, false);
+      await renderSide(tile, "inside", { artworkDataUrl: insideArtworkDataUrl, artworkMarkup: opts.insideArtworkMarkup }, false);
     }
   }
 
