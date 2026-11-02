@@ -17,6 +17,7 @@ interface Props {
   sceneCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
   transparentSceneExportRef: React.MutableRefObject<(() => Promise<Blob>) | null>;
   activeTab: "2d" | "3d";
+  onRequest3D: () => void;
 }
 
 /**
@@ -29,7 +30,7 @@ function forPrint(side: SideArtwork): SideArtwork {
   return { ...side, backgroundColor: "#ffffff" };
 }
 
-export default function ExportBar({ layout, artwork, title, sceneRef, sceneCanvasRef, transparentSceneExportRef, activeTab }: Props) {
+export default function ExportBar({ layout, artwork, title, sceneRef, sceneCanvasRef, transparentSceneExportRef, activeTab, onRequest3D }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [includeMeasurements, setIncludeMeasurements] = useState(false);
   const exportMenuRef = useRef<HTMLDetailsElement>(null);
@@ -104,8 +105,8 @@ export default function ExportBar({ layout, artwork, title, sceneRef, sceneCanva
     run("glb", async () => {
       const { exportGLB } = await import("../geometry/glbExport");
       if (!sceneRef.current) {
-        alert("Open the 3D tab first so the model is ready to export.");
-        return;
+        onRequest3D();
+        throw new Error("3D Studio is opening. Please export the model again once the preview has loaded.");
       }
       const blob = await exportGLB(sceneRef.current);
       downloadBlob(`${title}.glb`, blob);
@@ -153,7 +154,7 @@ export default function ExportBar({ layout, artwork, title, sceneRef, sceneCanva
           <div className="export-group-label">PRODUCTION FILES</div>
           <button type="button" className="export-option" disabled={!!busy} onClick={() => runFromMenu(exportSVG)}><span><b>SVG dieline</b><small>Vector artwork · outside / inside</small></span><Icon name="download"/></button>
           <button type="button" className="export-option" disabled={!!busy} onClick={() => runFromMenu(exportDXF)}><span><b>DXF cut file</b><small>CAD-ready cut and crease lines</small></span><Icon name="download"/></button>
-          <button type="button" className="export-option" disabled={!!busy || activeTab !== "3d"} onClick={() => runFromMenu(exportModel)} title={activeTab !== "3d" ? "Open 3D Studio before exporting the model." : "Export the assembled model."}><span><b>3D model · GLB</b><small>{activeTab === "3d" ? "Folded packaging geometry" : "Available in 3D Studio"}</small></span><Icon name="download"/></button>
+          <button type="button" className="export-option" disabled={!!busy} onClick={() => runFromMenu(exportModel)} title="Export the assembled model; opens 3D Studio if needed."><span><b>3D model · GLB</b><small>{activeTab === "3d" ? "Folded packaging geometry" : "Switch to 3D Studio to prepare model"}</small></span><Icon name="download"/></button>
           <label className="export-measurements"><input type="checkbox" checked={includeMeasurements} onChange={(e) => setIncludeMeasurements(e.target.checked)}/><span>Include measurement marks</span></label>
           <div className="export-group-label presentation-label">PRESENTATION</div>
           <div className="presentation-exports">
