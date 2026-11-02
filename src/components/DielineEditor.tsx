@@ -35,8 +35,6 @@ interface Props {
   onToggleLockTemplate?: (v: boolean) => void;
   /** Edges where a new face can be attached. Drawn as + handles while face editing is on. */
   faceHandles?: FaceHandle[];
-  /** Id of the base face, which cannot be removed. */
-  baseFaceId?: string;
   faceEditing?: boolean;
   onToggleFaceEditing?: (v: boolean) => void;
   onAddFace?: (parentId: string, edge: HingeEdge) => void;
@@ -345,7 +343,6 @@ export default function DielineEditor({
   lockTemplate = false,
   onToggleLockTemplate,
   faceHandles = [],
-  baseFaceId,
   faceEditing = false,
   onToggleFaceEditing,
   onAddFace,
@@ -807,7 +804,7 @@ export default function DielineEditor({
             const [hx, hy] = at[handle.edge];
             return <FaceButton key={`add-${handle.panelId}-${handle.edge}`} x={hx} y={hy} symbol="+" color="#2563eb" label={`Add a face on the ${handle.edge} edge of ${panel.name}`} onPress={() => onAddFace(handle.panelId, handle.edge)} />;
           })}
-          {onRemoveFace && selectedPanelId && selectedPanelId !== baseFaceId && panelById[selectedPanelId] && (() => {
+          {onRemoveFace && selectedPanelId && panelById[selectedPanelId] && (() => {
             const panel = panelById[selectedPanelId];
             const [rightX, topY] = toStage(panel.max[0], panel.max[1], layout.bounds.height, pxPerMm);
             return <FaceButton key="remove-face" x={rightX - FACE_HANDLE_GAP} y={topY + FACE_HANDLE_GAP} symbol="−" color="#dc2626" label={`Remove ${panel.name}`} onPress={() => onRemoveFace(panel.id)} />;

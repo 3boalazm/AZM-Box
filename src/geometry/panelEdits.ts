@@ -90,19 +90,62 @@ function buildAddedFace(face: AddedFace, parent: PanelNode, index: number): Pane
   };
 }
 
-/** Applies the removals, then the additions, to a tree whose ids are already stable. */
+const sizeOf = (node: PanelNode): number => 1 + node.children.reduce((sum, child) => sum + sizeOf(child), 0);
+
+/**
+ * The face that takes over when `node` is removed. In a strip of walls the next
+ * wall along the same edge closes the gap (it is re-hinged to the removed face's
+ * parent); for the base face the biggest group of faces becomes the new base.
+ */
+function successorOf(node: PanelNode, isRoot: boolean): PanelNode | undefined {
+  // Hand-added faces never become the base: they only exist once the template is settled.
+  if (isRoot) return [...node.children].filter((child) => child.face !== "extra").sort((a, b) => sizeOf(b) - sizeOf(a))[0];
+  return node.children.find((child) => child.parentEdge === node.parentEdge);
+}
+
+/**
+ * Applies the removals (re-rooting the tree if the base face is among them), then
+ * the additions.
+ */
 export function applyPanelEdits(root: PanelNode, edits?: PanelEdits): PanelNode {
   if (!edits || (!edits.removed?.length && !edits.added?.length)) return root;
 
   const removed = new Set(edits.removed ?? []);
-  removed.delete(root.id);
+  const rootRemoved = removed.delete(root.id);
+
+  // A removed face disappears together with its flaps and tabs; the next wall
+  // along the same edge, if any, is re-hinged in its place.
+  const settle = (parent: PanelNode, child: PanelNode): PanelNode[] => {
+    if (!removed.has(child.id)) return [child];
+    const next = successorOf(child, false);
+    if (!next) return [];
+    next.parentEdge = child.parentEdge;
+    next.parentOffset = child.parentOffset ?? 0;
+    next.parentId = parent.id;
+    return settle(parent, next);
+  };
   const prune = (node: PanelNode) => {
-    node.children = node.children.filter((child) => !removed.has(child.id));
+    node.children = node.children.flatMap((child) => settle(node, child));
     node.children.forEach(prune);
   };
   prune(root);
 
-  const located = locate(root);
+  let base = root;
+  if (rootRemoved) {
+    const next = successorOf(root, true);
+    if (next) {
+      delete next.parentEdge;
+      delete next.parentOffset;
+      delete next.parentId;
+      next.foldAngle = 0;
+      next.hinged = false;
+      next.foldStart = undefined;
+      next.foldEnd = undefined;
+      base = next;
+    }
+  }
+
+  const located = locate(base);
   (edits.added ?? []).forEach((face, index) => {
     const parent = located.get(face.parentId);
     if (!parent || located.has(face.id) || !canHost(parent, face.edge)) return;
@@ -110,7 +153,8 @@ export function applyPanelEdits(root: PanelNode, edits?: PanelEdits): PanelNode 
     parent.node.children.push(node);
     located.set(node.id, { node, mirrored: parent.mirrored || face.edge === "bottom" });
   });
-  return root;
+
+  return base;
 }
 
 export interface FaceHandle {
@@ -127,14 +171,14 @@ export function freeFaceEdges(root: PanelNode): FaceHandle[] {
   return handles;
 }
 
-/** The ids of a face and every face hinged beyond it. */
-export function faceSubtreeIds(root: PanelNode, panelId: string): string[] {
-  const start = locate(root).get(panelId)?.node;
-  if (!start) return [];
-  const ids: string[] = [];
-  const visit = (node: PanelNode) => { ids.push(node.id); node.children.forEach(visit); };
-  visit(start);
-  return ids;
+const subtreeIds = (node: PanelNode): string[] => [node.id, ...node.children.flatMap(subtreeIds)];
+
+/** The ids of every face that disappears when `panelId` is removed (the face, its flaps and tabs). */
+export function faceRemovalLoss(root: PanelNode, panelId: string): string[] {
+  const node = locate(root).get(panelId)?.node;
+  if (!node) return [];
+  const keep = successorOf(node, node === root);
+  return [node.id, ...node.children.filter((child) => child !== keep).flatMap(subtreeIds)];
 }
 
 const withEdits = (dims: BoxDimensions, edits: PanelEdits): BoxDimensions => {
@@ -164,14 +208,21 @@ export function addFace(dims: BoxDimensions, root: PanelNode, parentId: string, 
   return { dims: withEdits(dims, { ...edits, added: [...(edits.added ?? []), { id, parentId, edge, depth }] }), id };
 }
 
-/** Takes a face (and everything hinged beyond it) out of the box. The base face cannot be removed. */
+/**
+ * Takes a face out of the box together with the flaps and tabs hinged to it. The
+ * faces beyond it close up the gap, and removing the base face makes the biggest
+ * remaining group the new base. The last face cannot be removed.
+ */
 export function removeFace(dims: BoxDimensions, root: PanelNode, panelId: string): BoxDimensions {
-  if (panelId === root.id) return dims;
-  const subtree = new Set(faceSubtreeIds(root, panelId));
-  if (subtree.size === 0) return dims;
+  const node = locate(root).get(panelId)?.node;
+  if (!node || (node === root && root.children.length === 0)) return dims;
   const edits = dims.panelEdits ?? {};
-  const added = (edits.added ?? []).filter((face) => !subtree.has(face.id));
-  const wasAdded = added.length !== (edits.added ?? []).length && (edits.added ?? []).some((face) => face.id === panelId);
+  const lost = new Set(faceRemovalLoss(root, panelId));
+  const wasAdded = (edits.added ?? []).some((face) => face.id === panelId);
+  // An added face hinged to the removed one keeps its place if it is the one closing the gap.
+  const added = (edits.added ?? [])
+    .filter((face) => !lost.has(face.id))
+    .map((face) => (face.parentId === panelId && node.parentId ? { ...face, parentId: node.parentId } : face));
   const removed = wasAdded || (edits.removed ?? []).includes(panelId) ? edits.removed ?? [] : [...(edits.removed ?? []), panelId];
   return withEdits(dims, { removed: removed.slice(0, MAX_REMOVED), added });
 }

@@ -1,6 +1,6 @@
 import { getBoxStyle } from "../src/geometry/boxBuilders";
 import { computeFlatLayout, flattenTree } from "../src/geometry/layout";
-import { addFace, clearPanelEdits, faceSubtreeIds, freeFaceEdges, panelEditCount, removeFace, sanitizePanelEdits, setAddedFaceDepth } from "../src/geometry/panelEdits";
+import { addFace, clearPanelEdits, faceRemovalLoss, freeFaceEdges, panelEditCount, removeFace, sanitizePanelEdits, setAddedFaceDepth } from "../src/geometry/panelEdits";
 import { parseProject, serializeProject } from "../src/project/projectFile";
 import { emptyArtwork } from "../src/artwork/types";
 import { DEFAULT_SCENE_SETTINGS } from "../src/project/sceneSettings";
@@ -66,12 +66,39 @@ const noFlap = build(removeFace(base, root, flap.id));
 check("a template flap can be removed", !flattenTree(noFlap).some((n) => n.id === flap.id) && flattenTree(noFlap).length === ids.length - 1);
 check("a removed flap's edge becomes free for a new face", freeFaceEdges(noFlap).some((h) => h.panelId === flap.parentId && h.edge === "top"));
 
+// Removing a wall in the strip: its flaps go with it and the next wall closes the gap.
 const wall = flattenTree(root).find((n) => n.face === "left")!;
-const wallGone = faceSubtreeIds(root, wall.id);
-const noWall = build(removeFace(base, root, wall.id));
-check("removing a wall also removes what hangs off it", flattenTree(noWall).length === ids.length - wallGone.length && wallGone.length > 1, `${wallGone.length} faces`);
-check("the base face cannot be removed", removeFace(base, root, root.id) === base);
+const back = flattenTree(root).find((n) => n.face === "back")!;
+const lostWithWall = faceRemovalLoss(root, wall.id);
+const noWallDims = removeFace(base, root, wall.id);
+const noWall = build(noWallDims);
+const noWallLayout = computeFlatLayout(noWall);
+check("removing a wall also removes its own flaps", lostWithWall.length === 3 && flattenTree(noWall).length === ids.length - 3, `${lostWithWall.length} faces`);
+check("the wall beyond it closes the gap", flattenTree(noWall).find((n) => n.id === back.id)?.parentId === wall.parentId);
+check("the strip gets shorter by the removed wall", Math.abs(computeFlatLayout(root).bounds.width - noWallLayout.bounds.width - wall.w) < 1e-6, `-${wall.w} mm`);
+check("the closed-up faces keep working hinges", noWallLayout.foldLines.length >= noWallLayout.panels.length - 2);
+
+// Removing the base face: the biggest remaining group becomes the new base.
+const lostWithBase = faceRemovalLoss(root, root.id);
+const noBaseDims = removeFace(base, root, root.id);
+const noBase = build(noBaseDims);
+check("the base face can be removed", noBaseDims !== base && !flattenTree(noBase).some((n) => n.id === root.id));
+check("the tree gets a new base without a hinge", noBase.id !== root.id && noBase.parentEdge === undefined && noBase.parentId === undefined && noBase.hinged === false && noBase.foldAngle === 0);
+check("the base face takes only its own flaps with it", flattenTree(noBase).length === ids.length - lostWithBase.length && lostWithBase.length === 3, `${lostWithBase.length} faces`);
+const noBaseLayout = computeFlatLayout(noBase);
+check("the dieline is still one connected piece", noBaseLayout.panels.length === flattenTree(noBase).length && noBaseLayout.bounds.width > 0);
+check("the removed base leaves a free edge to add a face back", freeFaceEdges(noBase).some((h) => h.panelId === noBase.id));
+const refilled = addFace(noBaseDims, noBase, noBase.id, freeFaceEdges(noBase).find((h) => h.panelId === noBase.id)!.edge);
+check("a face can be added where the base was", !!refilled && computeFlatLayout(build(refilled.dims)).panels.length === noBaseLayout.panels.length + 1);
+check("a lone face cannot be removed", removeFace({ ...base }, { ...root, children: [] }, root.id).panelEdits === undefined);
 check("removing an unknown face does nothing", removeFace(base, root, "nope") === base);
+
+// An added face that closes the gap survives its parent being removed.
+const strip = addFace(base, root, flattenTree(root).find((n) => n.face === "glue")!.id, "right")!;
+const stripRoot = build(strip.dims);
+const glue = flattenTree(stripRoot).find((n) => n.face === "glue")!;
+const withoutGlue = build(removeFace(strip.dims, stripRoot, glue.id));
+check("an added face keeps its place when its parent is removed", flattenTree(withoutGlue).some((n) => n.id === strip.id && n.parentId === glue.parentId));
 
 const undone = removeFace(added.dims, withAdded, added.id);
 check("removing an added face leaves no trace", panelEditCount(undone) === 0 && undone.panelEdits === undefined);

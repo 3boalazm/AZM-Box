@@ -21,7 +21,7 @@ import Icon from "./components/Icon";
 import { useFeedback } from "./components/Feedback";
 import { placeSheetImage } from "./artwork/placeSheetImage";
 import { isSvgFile, readArtworkFile } from "./artwork/svgArt";
-import { addFace, faceSubtreeIds, freeFaceEdges, removeFace } from "./geometry/panelEdits";
+import { addFace, faceRemovalLoss, freeFaceEdges, removeFace } from "./geometry/panelEdits";
 import StartScreen from "./components/StartScreen";
 import { addRecent } from "./lib/recentProjects";
 import type { RecentProject } from "./lib/recentProjects";
@@ -193,16 +193,16 @@ export default function App() {
     setSelectedPanelId(result.id);
   };
   const handleRemoveFace = async (panelId: string) => {
-    if (panelId === root.id) {
-      notify(t("The base face cannot be removed."), "error");
+    if (panelId === root.id && root.children.length === 0) {
+      notify(t("The last face cannot be removed."), "error");
       return;
     }
     const name = layout.panels.find((panel) => panel.id === panelId)?.name ?? "";
-    const attached = faceSubtreeIds(root, panelId).length - 1;
+    const attached = faceRemovalLoss(root, panelId).length - 1;
     if (attached > 0) {
       const confirmed = await confirm({
         title: t("Remove face"),
-        message: t("Removing {name} also removes the {n} faces attached beyond it. You can undo this with Ctrl/⌘ Z.", { name, n: attached }),
+        message: t("Removing {name} also removes the {n} flaps and faces hinged to it. You can undo this with Ctrl/⌘ Z.", { name, n: attached }),
         confirmLabel: t("Remove"),
         cancelLabel: t("Cancel"),
         danger: true,
@@ -559,7 +559,6 @@ export default function App() {
                 lockTemplate={lockTemplate}
                 onToggleLockTemplate={setLockTemplate}
                 faceHandles={faceHandles}
-                baseFaceId={root.id}
                 faceEditing={faceEditing}
                 onToggleFaceEditing={setFaceEditing}
                 onAddFace={handleAddFace}

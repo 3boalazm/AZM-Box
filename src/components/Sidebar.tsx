@@ -298,8 +298,7 @@ export default function Sidebar({ boxStyleId, dims, layout, onChangeStyle, onCha
             ? <div className="panel-target"><span className="target-dot"/><span>{selectedFace.name}</span><span className="target-size">{fmt(selectedFace.w)} × {fmt(selectedFace.h)}</span></div>
             : <p className="empty-note">{t("Select a face on the dieline to resize or remove it.")}</p>}
           {selectedAdded && <Field label={t("Face depth")} value={selectedAdded.depth} min={1} onChange={(v) => onChangeDims(setAddedFaceDepth(dims, selectedAdded.id, v))} hint={t("How far the added face reaches from the edge it is hinged to.")} />}
-          {selectedFace && selectedFace.id !== layout.panels[0]?.id && onRemoveFace && <button type="button" className="flap-remove face-remove" onClick={() => onRemoveFace(selectedFace.id)}>− {t("Remove this face")}</button>}
-          {selectedFace && selectedFace.id === layout.panels[0]?.id && <p className="control-hint">{t("The base face cannot be removed.")}</p>}
+          {selectedFace && onRemoveFace && layout.panels.length > 1 && <button type="button" className="flap-remove face-remove" onClick={() => onRemoveFace(selectedFace.id)}>− {t("Remove this face")}</button>}
           {faceEdits > 0 && <button type="button" className="text-action" onClick={() => onChangeDims(clearPanelEdits(dims))}>{t("Restore the template faces")}</button>}
         </div>
       </details>
