@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { BOX_STYLES } from "../geometry/boxBuilders";
 import type { BoxDimensions, BoxStyleId, DielineLayout, FaceRole, FlapWall } from "../geometry/types";
 import { FLAP_WALLS } from "../geometry/types";
+import { clearPanelEdits, panelEditCount, setAddedFaceDepth } from "../geometry/panelEdits";
 import { mmToUnit, setPreferences, unitToMm, usePreferences } from "../lib/preferences";
 import type { Unit } from "../lib/preferences";
 import { useT } from "../lib/i18n";
@@ -17,6 +18,9 @@ interface Props {
   highlightFace?: FaceRole;
   /** Bumped on every panel click so re-clicking the same panel replays the flash. */
   highlightNonce?: number;
+  /** The face selected on the dieline, if any. */
+  selectedPanelId?: string | null;
+  onRemoveFace?: (panelId: string) => void;
 }
 
 /**
@@ -139,7 +143,7 @@ const WALL_LABELS: Record<FlapWall, string> = {
   right: "Right wall flap",
 };
 
-export default function Sidebar({ boxStyleId, dims, layout, onChangeStyle, onChangeDims, highlightFace, highlightNonce }: Props) {
+export default function Sidebar({ boxStyleId, dims, layout, onChangeStyle, onChangeDims, highlightFace, highlightNonce, selectedPanelId, onRemoveFace }: Props) {
   const t = useT();
   const { unit } = usePreferences();
   const style = BOX_STYLES.find((s) => s.id === boxStyleId)!;
@@ -179,6 +183,9 @@ export default function Sidebar({ boxStyleId, dims, layout, onChangeStyle, onCha
   const matchingPreset = BOARD_PRESETS.find((preset) => preset.thickness === thickness);
   const front = wallPanel("front");
   const left = wallPanel("left");
+  const selectedFace = layout.panels.find((panel) => panel.id === selectedPanelId);
+  const selectedAdded = dims.panelEdits?.added?.find((face) => face.id === selectedPanelId);
+  const faceEdits = panelEditCount(dims);
   const fmt = (mm: number) => `${mmToUnit(mm, unit)} ${unit}`;
 
   return (
@@ -280,6 +287,20 @@ export default function Sidebar({ boxStyleId, dims, layout, onChangeStyle, onCha
           <Field label={t("Right glue tab")} value={dims.endFlapRight ?? 0} min={0} onChange={(v) => onChangeDims({ ...dims, endFlapRight: v })} hint={t("The manufacturer's glue tab that bonds the tube closed.")} flash={flashId === "endFlapRight"} />
           <Field label={t("Left end tab")} value={dims.endFlapLeft ?? 0} min={0} onChange={(v) => onChangeDims({ ...dims, endFlapLeft: v })} hint={t("Optional matching tab; set 0 mm for none.")} />
           {boxStyleId === "mailer" && <Field label={t("Lid tuck depth")} value={Math.round(dims.lidDepth ?? dims.height * 0.9)} min={1} onChange={(v) => onChangeDims({ ...dims, lidDepth: v })} />}
+        </div>
+      </details>
+
+      <details className="inspector-group" open>
+        <summary className="inspector-summary"><span>{t("Faces")}</span><span className="summary-meta">{faceEdits > 0 ? t("{n} edited", { n: faceEdits }) : String(layout.panels.length).padStart(2, "0")}</span></summary>
+        <div className="inspector-content">
+          <p className="control-hint">{t("Click + on a free edge of the dieline to add a face there. Select a face, then − to remove it.")}</p>
+          {selectedFace
+            ? <div className="panel-target"><span className="target-dot"/><span>{selectedFace.name}</span><span className="target-size">{fmt(selectedFace.w)} × {fmt(selectedFace.h)}</span></div>
+            : <p className="empty-note">{t("Select a face on the dieline to resize or remove it.")}</p>}
+          {selectedAdded && <Field label={t("Face depth")} value={selectedAdded.depth} min={1} onChange={(v) => onChangeDims(setAddedFaceDepth(dims, selectedAdded.id, v))} hint={t("How far the added face reaches from the edge it is hinged to.")} />}
+          {selectedFace && selectedFace.id !== layout.panels[0]?.id && onRemoveFace && <button type="button" className="flap-remove face-remove" onClick={() => onRemoveFace(selectedFace.id)}>− {t("Remove this face")}</button>}
+          {selectedFace && selectedFace.id === layout.panels[0]?.id && <p className="control-hint">{t("The base face cannot be removed.")}</p>}
+          {faceEdits > 0 && <button type="button" className="text-action" onClick={() => onChangeDims(clearPanelEdits(dims))}>{t("Restore the template faces")}</button>}
         </div>
       </details>
 

@@ -1,5 +1,6 @@
 import type { BoxDimensions, BoxStyleDefinition, BoxStyleId, FaceRole, FlapWall, HingeEdge, PanelNode } from "./types";
 import { FLAP_WALLS } from "./types";
+import { applyPanelEdits, assignStableIds } from "./panelEdits";
 import { boundsOf, dustFlap, lockTab, rect, roundedTuckFlap, smallDustFlap, tuckFlap } from "./shapes";
 
 let uid = 0;
@@ -577,7 +578,8 @@ export function getBoxStyle(id: BoxStyleId): BoxStyleDefinition {
     ...found,
     build: (dims) => {
       const sized = compensateForMaterial(dims);
-      return applyCustomFlaps(found.build(sized), sized);
+      // Ids are made structural before the hand edits run, because those edits name faces by id.
+      return applyPanelEdits(assignStableIds(applyCustomFlaps(found.build(sized), sized)), sized.panelEdits);
     },
   };
 }

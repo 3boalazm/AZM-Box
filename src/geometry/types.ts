@@ -24,7 +24,9 @@ export type FaceRole =
   | "flap-bottom-front"
   | "flap-bottom-back"
   | "flap-bottom-left"
-  | "flap-bottom-right";
+  | "flap-bottom-right"
+  /** A face the user added by hand with the + handles. */
+  | "extra";
 
 /** A 2D point in millimeters, local to the panel's own coordinate frame. */
 export type Point = [number, number];
@@ -109,6 +111,24 @@ export interface BoxDimensions {
   materialThickness?: number;
   /** Whether length/width/height are the finished INSIDE (default) or OUTSIDE size. */
   dimensionBasis?: "internal" | "external";
+  /** Faces the user removed from, or added to, the template (see panelEdits.ts). */
+  panelEdits?: PanelEdits;
+}
+
+/** A rectangular face the user attached to a free edge of another face. */
+export interface AddedFace {
+  id: string;
+  /** Id of the face it is hinged to — a template face or another added face. */
+  parentId: string;
+  edge: HingeEdge;
+  /** How far the face reaches away from its hinge, mm. */
+  depth: number;
+}
+
+export interface PanelEdits {
+  /** Ids of template faces to leave out, together with everything hinged beyond them. */
+  removed?: string[];
+  added?: AddedFace[];
 }
 
 export type BoxStyleId =

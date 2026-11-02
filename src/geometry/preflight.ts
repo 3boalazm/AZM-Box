@@ -1,6 +1,7 @@
 import type { BoxDimensions, DielineLayout } from "./types";
 import type { ArtworkState, SideArtwork } from "../artwork/types";
 import { loadImageSize } from "../lib/files";
+import { isSvgSource } from "../artwork/svgArt";
 import type { ExportSettings } from "../lib/preferences";
 import { resolvePaper } from "../lib/preferences";
 import { planPages } from "./paginate";
@@ -22,6 +23,8 @@ const MM_PER_INCH = 25.4;
 
 const sizeCache = new Map<string, Promise<{ width: number; height: number } | null>>();
 function imageSize(src: string) {
+  // Vector artwork has no pixel resolution, so there is nothing to measure.
+  if (isSvgSource(src)) return Promise.resolve(null);
   let found = sizeCache.get(src);
   if (!found) {
     found = loadImageSize(src).catch(() => null);

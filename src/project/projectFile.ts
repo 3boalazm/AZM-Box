@@ -2,6 +2,7 @@ import type { BoxDimensions, BoxStyleId } from "../geometry/types";
 import type { ArtworkState, SideArtwork, EditorLayer } from "../artwork/types";
 import { emptySide } from "../artwork/types";
 import { BOX_STYLES } from "../geometry/boxBuilders";
+import { sanitizePanelEdits } from "../geometry/panelEdits";
 import { DEFAULT_SCENE_SETTINGS, normalizeSceneSettings } from "./sceneSettings";
 import type { SceneSettings } from "./sceneSettings";
 
@@ -137,7 +138,9 @@ function normalizeTemplateMemory(raw: unknown): Partial<Record<BoxStyleId, BoxDi
         throw new Error(`Saved ${id} flap shapes are invalid.`);
       }
     }
-    memory[style.id] = { ...style.defaultDimensions, ...dimensions, length: dimensions.length, width: dimensions.width, height: dimensions.height };
+    const { panelEdits: rawEdits, ...rest } = dimensions;
+    const panelEdits = sanitizePanelEdits(rawEdits);
+    memory[style.id] = { ...style.defaultDimensions, ...rest, length: dimensions.length, width: dimensions.width, height: dimensions.height, ...(panelEdits ? { panelEdits } : {}) };
   }
   return memory;
 }
@@ -194,12 +197,15 @@ export function parseProject(text: string): { boxStyleId: BoxStyleId; dims: BoxD
     const validShapes = new Set(["default", "straight", "dust", "tuck", "lock"]);
     if (Object.values(d.flapShapes).some((shape) => !validShapes.has(String(shape)))) throw new Error("The project contains an unknown flap shape.");
   }
+  const { panelEdits: rawEdits, ...restOfDims } = d;
+  const panelEdits = sanitizePanelEdits(rawEdits);
   const dims: BoxDimensions = {
     ...style.defaultDimensions,
-    ...d,
+    ...restOfDims,
     length: d.length,
     width: d.width,
     height: d.height,
+    ...(panelEdits ? { panelEdits } : {}),
   };
 
   const a = (typeof file.artwork === "object" && file.artwork !== null ? file.artwork : {}) as Record<string, unknown>;

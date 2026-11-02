@@ -24,6 +24,9 @@ export interface PdfExportOptions {
    * sheet for every tile.
    */
   insideArtworkDataUrl?: string;
+  /** Artwork as SVG markup (keeps SVG sources vector). Wins over the matching data URL. */
+  outsideArtworkMarkup?: string;
+  insideArtworkMarkup?: string;
   title?: string;
   /** Portrait paper size in mm. Defaults to A4. */
   paper?: { width: number; height: number };
@@ -90,7 +93,12 @@ export async function exportDielinePDF(layout: DielineLayout, opts: PdfExportOpt
 
   const doc = new jsPDF({ orientation: pageOrientation, unit: "mm", format: pageFormat });
 
-  const renderSide = async (tile: (typeof plan.pages)[number], side: "outside" | "inside", artworkDataUrl: string | undefined, isFirstPageOfDoc: boolean) => {
+  const renderSide = async (
+    tile: (typeof plan.pages)[number],
+    side: "outside" | "inside",
+    artwork: { artworkDataUrl?: string; artworkMarkup?: string },
+    isFirstPageOfDoc: boolean,
+  ) => {
     if (!isFirstPageOfDoc) doc.addPage(pageFormat, pageOrientation);
 
     // Single page: center the artwork on the sheet. Tiled: anchor every tile at the
@@ -111,7 +119,7 @@ export async function exportDielinePDF(layout: DielineLayout, opts: PdfExportOpt
     };
 
     const svgString = generateDielineSVG(layout, {
-      artworkDataUrl,
+      ...artwork,
       title,
       viewBox: bleedView,
       outputSizeMm: { width: bleedView.width, height: bleedView.height },
@@ -145,9 +153,9 @@ export async function exportDielinePDF(layout: DielineLayout, opts: PdfExportOpt
 
   for (let i = 0; i < plan.pages.length; i++) {
     const tile = plan.pages[i];
-    await renderSide(tile, "outside", outsideArtworkDataUrl, i === 0);
+    await renderSide(tile, "outside", { artworkDataUrl: outsideArtworkDataUrl, artworkMarkup: opts.outsideArtworkMarkup }, i === 0);
     if (hasInside) {
-      await renderSide(tile, "inside", insideArtworkDataUrl, false);
+      await renderSide(tile, "inside", { artworkDataUrl: insideArtworkDataUrl, artworkMarkup: opts.insideArtworkMarkup }, false);
     }
   }
 

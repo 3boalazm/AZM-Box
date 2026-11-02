@@ -3,6 +3,7 @@ import type { BoxDimensions, DielineLayout } from "../geometry/types";
 import type { ArtworkState, SideArtwork } from "../artwork/types";
 import { sideHasContent } from "../artwork/types";
 import { renderFullSheetCanvas } from "../artwork/renderPanel";
+import { buildArtworkMarkup, sideHasVectorArt } from "../artwork/vectorSheet";
 import { generateDielineSVG } from "../geometry/svgExport";
 import { generateDielineDXF } from "../geometry/dxfExport";
 import { downloadBlob } from "../lib/files";
@@ -85,12 +86,19 @@ export default function ExportBar({ layout, dims, styleDefaults, artwork, title,
     await new Promise((resolve) => setTimeout(resolve, 700));
   };
 
+  // Sides that use SVG artwork are exported as markup so they stay vector; every
+  // other side keeps the flattened 8 px/mm bitmap.
+  const artworkFor = async (side: SideArtwork): Promise<{ artworkDataUrl?: string; artworkMarkup?: string }> => {
+    const printable = forPrint(side);
+    if (sideHasVectorArt(printable)) return { artworkMarkup: buildArtworkMarkup(layout, printable) };
+    return { artworkDataUrl: (await renderFullSheetCanvas(layout, printable, 8)).toDataURL("image/png") };
+  };
+
   const exportSVG = () =>
     run("svg", async () => {
       const hasInside = sideHasContent(artwork.inside);
-      const outsideCanvas = await renderFullSheetCanvas(layout, forPrint(artwork.outside), 8);
       const outsideSvg = generateDielineSVG(layout, {
-        artworkDataUrl: outsideCanvas.toDataURL("image/png"),
+        ...(await artworkFor(artwork.outside)),
         title,
         trimGuide: true,
         dimensions: includeMeasurements,
@@ -103,9 +111,8 @@ export default function ExportBar({ layout, dims, styleDefaults, artwork, title,
         // (and therefore which axis a long-edge flip turns about) isn't known here.
         // Shipping it the right way round keeps it predictable — mirror it in that
         // program if you send it to a duplex printer.
-        const insideCanvas = await renderFullSheetCanvas(layout, forPrint(artwork.inside), 8);
         const insideSvg = generateDielineSVG(layout, {
-          artworkDataUrl: insideCanvas.toDataURL("image/png"),
+          ...(await artworkFor(artwork.inside)),
           title,
           trimGuide: true,
           dimensions: includeMeasurements,
@@ -120,11 +127,13 @@ export default function ExportBar({ layout, dims, styleDefaults, artwork, title,
       const { exportDielinePDF } = await import("../geometry/pdfExport");
       // Both faces are always rendered and always exported — the inside sheet is
       // needed for print regardless of whether artwork has been added to it yet.
-      const outsideCanvas = await renderFullSheetCanvas(layout, forPrint(artwork.outside), 8);
-      const insideCanvas = await renderFullSheetCanvas(layout, forPrint(artwork.inside), 8);
+      const outside = await artworkFor(artwork.outside);
+      const inside = await artworkFor(artwork.inside);
       const blob = await exportDielinePDF(layout, {
-        outsideArtworkDataUrl: outsideCanvas.toDataURL("image/png"),
-        insideArtworkDataUrl: insideCanvas.toDataURL("image/png"),
+        outsideArtworkDataUrl: outside.artworkDataUrl,
+        outsideArtworkMarkup: outside.artworkMarkup,
+        insideArtworkDataUrl: inside.artworkDataUrl,
+        insideArtworkMarkup: inside.artworkMarkup,
         title,
         paper: resolvePaper(settings),
         marginMm: settings.margin,

@@ -3,7 +3,9 @@ import Icon from "./Icon";
 import ArtworkCropper from "./ArtworkCropper";
 import type { DielineLayout } from "../geometry/types";
 import type { ArtworkState, EditorLayer, SideArtwork } from "../artwork/types";
-import { readFileAsDataURL, loadImageSize } from "../lib/files";
+import { loadImageSize } from "../lib/files";
+import { isSvgSource, readArtworkFile } from "../artwork/svgArt";
+import { useFeedback } from "./Feedback";
 import { useT } from "../lib/i18n";
 import { placeSheetImage } from "../artwork/placeSheetImage";
 
@@ -28,6 +30,7 @@ function newId(prefix: string) {
 
 export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActiveSide, selectedPanelId, onUpdateArtwork }: Props) {
   const t = useT();
+  const { notify } = useFeedback();
   const sheetInputRef = useRef<HTMLInputElement>(null);
   const panelInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -42,8 +45,19 @@ export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActi
         : undefined;
   const selectedPanel = layout.panels.find((p) => p.id === selectedPanelId);
 
+  // SVG files stay vector; a file that cannot be read is reported instead of failing silently.
+  const readImage = async (file: File): Promise<string | null> => {
+    try {
+      return await readArtworkFile(file);
+    } catch (error) {
+      notify(t(error instanceof Error && error.message ? error.message : "That image could not be read."), "error");
+      return null;
+    }
+  };
+
   const handleSheetUpload = async (file: File) => {
-    const dataUrl = await readFileAsDataURL(file);
+    const dataUrl = await readImage(file);
+    if (!dataUrl) return;
     // Fit the whole sheet bounds by default (matches the old auto-scale-to-template
     // behavior) — the user can then drag/resize/rotate it freely on the canvas.
     onUpdateArtwork((a) => placeSheetImage(a, activeSide, dataUrl, layout.bounds));
@@ -63,13 +77,15 @@ export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActi
 
   const handlePanelUpload = async (file: File) => {
     if (!selectedPanel) return;
-    const dataUrl = await readFileAsDataURL(file);
+    const dataUrl = await readImage(file);
+    if (!dataUrl) return;
     onUpdateArtwork((a) => updateSide(a, activeSide, (s) => ({ ...s, panelImages: { ...s.panelImages, [selectedPanel.id]: dataUrl } })));
   };
 
   const handleLogoUpload = async (file: File) => {
     if (!selectedPanel) return;
-    const dataUrl = await readFileAsDataURL(file);
+    const dataUrl = await readImage(file);
+    if (!dataUrl) return;
 
     // Fit the logo's OWN aspect ratio inside a target box (~50% of the panel)
     // instead of forcing it into a fixed 50%x50% square — that stretch is what
@@ -152,10 +168,11 @@ export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActi
       </div>
 
       <details className="inspector-group artwork-group" open>
-        <summary className="inspector-summary"><span>{t("Full sheet image")}</span><span className="summary-meta">{side.sheetImage ? t("Added") : t("Optional")}</span></summary>
+        <summary className="inspector-summary"><span>{t("Full sheet image")}</span><span className="summary-meta">{side.sheetImage ? (isSvgSource(side.sheetImage) ? t("Vector") : t("Added")) : t("Optional")}</span></summary>
         <div className="inspector-content">
           <p className="control-hint">{t("Place one print-ready image across the dieline. Resize and reposition it directly on the canvas.")}</p>
-          <input ref={sheetInputRef} className="visually-hidden" type="file" accept="image/*" onChange={(e) => e.target.files?.[0] && handleSheetUpload(e.target.files[0])} />
+          {isSvgSource(side.sheetImage) && <p className="control-hint vector-hint">{t("SVG artwork stays vector: it is sharp at any size and exports as vector to PDF and SVG.")}</p>}
+          <input ref={sheetInputRef} className="visually-hidden" type="file" accept="image/*,.svg" onChange={(e) => e.target.files?.[0] && handleSheetUpload(e.target.files[0])} />
           {!side.sheetImage ? (
             <button type="button" className="upload-action" onClick={() => sheetInputRef.current?.click()}><Icon name="image"/><span><b>{t("Place artwork")}</b><small>{t("Choose an image file")}</small></span><Icon name="plus"/></button>
           ) : (
@@ -184,11 +201,11 @@ export default function ArtworkPanel({ layout, artwork, activeSide, onChangeActi
         <div className="inspector-content">
           {!selectedPanel ? <p className="empty-note">{t("Select a face on the dieline to place panel artwork and text.")}</p> : <>
             <div className="panel-target"><span className="target-dot"/><span>{selectedPanel.name}</span><span className="target-size">{selectedPanel.w.toFixed(0)} × {selectedPanel.h.toFixed(0)} mm</span></div>
-            <input ref={panelInputRef} className="visually-hidden" type="file" accept="image/*" onChange={(e) => e.target.files?.[0] && handlePanelUpload(e.target.files[0])}/>
+            <input ref={panelInputRef} className="visually-hidden" type="file" accept="image/*,.svg" onChange={(e) => e.target.files?.[0] && handlePanelUpload(e.target.files[0])}/>
             <div className="compact-actions panel-actions">
               <button type="button" className="subtle-action" onClick={() => panelInputRef.current?.click()}><Icon name="image"/> {t("Place image")}</button>
               <button type="button" className="subtle-action" onClick={addText}><Icon name="plus"/> {t("Add text")}</button>
-              <input ref={logoInputRef} className="visually-hidden" type="file" accept="image/*" onChange={(e) => e.target.files?.[0] && handleLogoUpload(e.target.files[0])}/>
+              <input ref={logoInputRef} className="visually-hidden" type="file" accept="image/*,.svg" onChange={(e) => e.target.files?.[0] && handleLogoUpload(e.target.files[0])}/>
               <button type="button" className="subtle-action" onClick={() => logoInputRef.current?.click()}><Icon name="plus"/> {t("Add logo")}</button>
             </div>
             {side.panelImages[selectedPanel.id] && <button type="button" className="text-action danger-action" onClick={removePanelImage}>{t("Remove panel image")}</button>}

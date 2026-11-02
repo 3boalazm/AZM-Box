@@ -521,3 +521,7 @@ html[dir="rtl"] .stage,html[dir="rtl"] .stage-3d,html[dir="rtl"] .fold3d-root,ht
 .num-field input[type="number"],.field input[type="number"] { direction: ltr; text-align: start; }
 html[dir="rtl"] .num-field input[type="number"],html[dir="rtl"] .field input[type="number"] { text-align: right; }
 .lang-toggle { min-width: 34px; font-weight: 700; }
+
+/* Removing a face from the sidebar */
+.face-remove { width: 100%; min-height: 32px; margin: 4px 0 6px; color: #b91c1c; border-color: #f3c7c7; }
+.face-remove:hover { color: #991b1b; background: #fef2f2; border-color: #e9a3a3; }

@@ -8,7 +8,7 @@ import StudioInspector from "./components/StudioInspector";
 import ExportBar from "./components/ExportBar";
 import { BOX_STYLES, getBoxStyle } from "./geometry/boxBuilders";
 import { computeFlatLayout } from "./geometry/layout";
-import type { BoxDimensions, BoxStyleId } from "./geometry/types";
+import type { BoxDimensions, BoxStyleId, HingeEdge } from "./geometry/types";
 import { transferDimensionsToTemplate } from "./geometry/templateDimensions";
 import { emptyArtwork } from "./artwork/types";
 import { visibleArtwork } from "./artwork/layerVisibility";
@@ -20,7 +20,8 @@ import type { SceneSettings } from "./project/sceneSettings";
 import Icon from "./components/Icon";
 import { useFeedback } from "./components/Feedback";
 import { placeSheetImage } from "./artwork/placeSheetImage";
-import { readFileAsDataURL } from "./lib/files";
+import { isSvgFile, readArtworkFile } from "./artwork/svgArt";
+import { addFace, faceSubtreeIds, freeFaceEdges, removeFace } from "./geometry/panelEdits";
 import StartScreen from "./components/StartScreen";
 import { addRecent } from "./lib/recentProjects";
 import type { RecentProject } from "./lib/recentProjects";
@@ -40,6 +41,7 @@ export default function App() {
   const [artwork, setArtwork] = useState(emptyArtwork());
   const [activeSide, setActiveSide] = useState<"outside" | "inside">("outside");
   const [selectedPanelId, setSelectedPanelId] = useState<string | null>(null);
+  const [faceEditing, setFaceEditing] = useState(true);
   const [selectedArtworkLayerId, setSelectedArtworkLayerId] = useState<string | null>(null);
   const [selectedStudioItem, setSelectedStudioItem] = useState("scene:model");
   const [activeTab, setActiveTab] = useState<"2d" | "3d">("2d");
@@ -177,6 +179,38 @@ export default function App() {
     setDims(next);
     setTemplateMemory((current) => ({ ...current, [boxStyleId]: { ...next } }));
     setSceneSettings((current) => ({ ...current, cameraPose: null }));
+  };
+
+  // ---- Adding and removing faces --------------------------------------------
+  const faceHandles = useMemo(() => freeFaceEdges(root), [root]);
+  const handleAddFace = (parentId: string, edge: HingeEdge) => {
+    const result = addFace(dims, root, parentId, edge);
+    if (!result) {
+      notify(t("A face cannot be added on that edge."), "error");
+      return;
+    }
+    handleChangeDimensions(result.dims);
+    setSelectedPanelId(result.id);
+  };
+  const handleRemoveFace = async (panelId: string) => {
+    if (panelId === root.id) {
+      notify(t("The base face cannot be removed."), "error");
+      return;
+    }
+    const name = layout.panels.find((panel) => panel.id === panelId)?.name ?? "";
+    const attached = faceSubtreeIds(root, panelId).length - 1;
+    if (attached > 0) {
+      const confirmed = await confirm({
+        title: t("Remove face"),
+        message: t("Removing {name} also removes the {n} faces attached beyond it. You can undo this with Ctrl/⌘ Z.", { name, n: attached }),
+        confirmLabel: t("Remove"),
+        cancelLabel: t("Cancel"),
+        danger: true,
+      });
+      if (!confirmed) return;
+    }
+    handleChangeDimensions(removeFace(dims, root, panelId));
+    setSelectedPanelId(null);
   };
 
   // ---- Undo / redo ---------------------------------------------------------
@@ -416,17 +450,18 @@ export default function App() {
     event.preventDefault();
     fileDragDepth.current = 0;
     setFileDragActive(false);
-    const file = Array.from(event.dataTransfer.files).find((candidate) => candidate.type.startsWith("image/"));
+    // Some systems report no MIME type for .svg files, so the extension counts too.
+    const file = Array.from(event.dataTransfer.files).find((candidate) => candidate.type.startsWith("image/") || isSvgFile(candidate));
     if (!file) {
       notify(t("Drop an image file (PNG, JPG, SVG…) to place it as artwork."), "error");
       return;
     }
     try {
-      const dataUrl = await readFileAsDataURL(file);
+      const dataUrl = await readArtworkFile(file);
       setArtwork((current) => placeSheetImage(current, activeSide, dataUrl, layout.bounds));
       notify(t("Placed {name} on the {side} sheet. Ctrl/⌘ Z to undo.", { name: file.name, side: t(activeSide) }), "success");
-    } catch {
-      notify(t("That image could not be read."), "error");
+    } catch (error) {
+      notify(t(error instanceof Error && error.message ? error.message : "That image could not be read."), "error");
     }
   };
 
@@ -485,6 +520,8 @@ export default function App() {
           onChangeDims={handleChangeDimensions}
           highlightFace={selectedPanelFace}
           highlightNonce={panelClickNonce}
+          selectedPanelId={selectedPanelId}
+          onRemoveFace={handleRemoveFace}
           />
         </div>}
         {activeTab === "2d" && <Sidebar
@@ -495,6 +532,8 @@ export default function App() {
           onChangeDims={handleChangeDimensions}
           highlightFace={selectedPanelFace}
           highlightNonce={panelClickNonce}
+          selectedPanelId={selectedPanelId}
+          onRemoveFace={handleRemoveFace}
         />}
 
         <main className="stage" id="workspace-canvas" role="tabpanel" tabIndex={0} aria-labelledby={activeTab === "2d" ? "view-2d" : "view-3d"} onDragEnter={handleStageDragEnter} onDragOver={handleStageDragOver} onDragLeave={handleStageDragLeave} onDrop={handleStageDrop}>
@@ -519,6 +558,12 @@ export default function App() {
                 lockedLayerIds={sceneSettings.lockedLayerIds}
                 lockTemplate={lockTemplate}
                 onToggleLockTemplate={setLockTemplate}
+                faceHandles={faceHandles}
+                baseFaceId={root.id}
+                faceEditing={faceEditing}
+                onToggleFaceEditing={setFaceEditing}
+                onAddFace={handleAddFace}
+                onRemoveFace={handleRemoveFace}
               />
               </Suspense>
             </div>

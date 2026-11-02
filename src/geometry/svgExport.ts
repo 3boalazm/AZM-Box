@@ -22,6 +22,12 @@ function pathFromPoints(points: Point[], height: number): string {
 export interface SvgExportOptions {
   /** Data URL of the flattened artwork (full sheet), drawn behind the cut/fold lines. */
   artworkDataUrl?: string;
+  /**
+   * Artwork already built as SVG markup in sheet space (see buildArtworkMarkup).
+   * Takes precedence over `artworkDataUrl`; keeps SVG sources vector instead of
+   * flattening them to a bitmap.
+   */
+  artworkMarkup?: string;
   showDimensions?: boolean;
   title?: string;
   /**
@@ -188,9 +194,11 @@ export function generateDielineSVG(layout: DielineLayout, opts: SvgExportOptions
   // the flipped top-left, i.e. sheetHeight - (view.y + view.height).
   const viewBoxY = sheetHeight - (view.y + view.height);
 
-  const artwork = opts.artworkDataUrl
-    ? `<image href="${opts.artworkDataUrl}" x="0" y="0" width="${sheetWidth}" height="${sheetHeight}" preserveAspectRatio="none" opacity="0.95" />`
-    : "";
+  const artwork =
+    opts.artworkMarkup ??
+    (opts.artworkDataUrl
+      ? `<image href="${opts.artworkDataUrl}" x="0" y="0" width="${sheetWidth}" height="${sheetHeight}" preserveAspectRatio="none" opacity="0.95" />`
+      : "");
 
   const cutPaths = layout.cutOutline
     .map((poly) => `<path d="${pathFromPoints(poly, sheetHeight)}" fill="none" stroke="#e2231a" stroke-width="0.35" stroke-linejoin="round" />`)
