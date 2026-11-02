@@ -1,5 +1,5 @@
 import { getBoxStyle } from "../src/geometry/boxBuilders";
-import { computeFlatLayout, flattenTree } from "../src/geometry/layout";
+import { computeFlatLayout, flattenTree, flipLayout } from "../src/geometry/layout";
 import { addFace, clearPanelEdits, faceRemovalLoss, freeFaceEdges, panelEditCount, removeFace, sanitizePanelEdits, setAddedFaceDepth } from "../src/geometry/panelEdits";
 import { parseProject, serializeProject } from "../src/project/projectFile";
 import { emptyArtwork } from "../src/artwork/types";
@@ -145,6 +145,24 @@ for (const definition of ["tuck-end", "rsc", "mailer", "hsc", "card-deck", "two-
   }
   check(`${definition}: a face can be added on each of its ${free.length} free edges`, ok);
 }
+
+// Flipping the die-cut.
+const plain = computeFlatLayout(root);
+const flippedX = flipLayout(plain, true, false);
+const flippedY = flipLayout(plain, false, true);
+const W = plain.bounds.width;
+const H = plain.bounds.height;
+check("no flip returns the layout untouched", flipLayout(plain, false, false) === plain);
+check("a flip keeps the sheet size and every face", flippedX.bounds === plain.bounds && flippedX.panels.length === plain.panels.length && flippedX.foldLines.length === plain.foldLines.length && flippedX.cutOutline.length === plain.cutOutline.length);
+check("a left-right flip mirrors every face about the sheet middle", plain.panels.every((p, i) => Math.abs(flippedX.panels[i].min[0] - (W - p.max[0])) < 1e-9 && Math.abs(flippedX.panels[i].max[0] - (W - p.min[0])) < 1e-9 && flippedX.panels[i].min[1] === p.min[1]));
+check("a face keeps its size when flipped", plain.panels.every((p, i) => Math.abs((flippedX.panels[i].max[0] - flippedX.panels[i].min[0]) - (p.max[0] - p.min[0])) < 1e-9));
+check("a top-bottom flip mirrors vertically and toggles the hinge frame", plain.panels.every((p, i) => Math.abs(flippedY.panels[i].min[1] - (H - p.max[1])) < 1e-9 && flippedY.panels[i].mirrored === !p.mirrored));
+const twice = flipLayout(flipLayout(plain, true, true), true, true);
+check("flipping twice gives the original drawing", plain.panels.every((p, i) => p.points.every((pt, j) => Math.abs(twice.panels[i].points[j][0] - pt[0]) < 1e-9 && Math.abs(twice.panels[i].points[j][1] - pt[1]) < 1e-9) && twice.panels[i].mirrored === p.mirrored));
+const flipSaved = parseProject(serializeProject("tuck-end", { ...base, flipX: true, flipY: true }, emptyArtwork(), DEFAULT_SCENE_SETTINGS, { "tuck-end": { ...base, flipX: true } }));
+check("the flip settings survive a save and load", flipSaved.dims.flipX === true && flipSaved.dims.flipY === true && flipSaved.templateMemory["tuck-end"]?.flipX === true);
+const junk = parseProject(serializeProject("tuck-end", { ...base, flipX: "yes" as unknown as boolean, flipY: 1 as unknown as boolean }, emptyArtwork(), DEFAULT_SCENE_SETTINGS, {}));
+check("non-boolean flip values are ignored", junk.dims.flipX === undefined && junk.dims.flipY === undefined);
 
 if (failures) {
   console.error(`${failures} check(s) failed`);

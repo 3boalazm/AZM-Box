@@ -5,6 +5,9 @@ export function transferDimensionsToTemplate(current: BoxDimensions, nextDefault
   // Board thickness and the inside/outside basis describe the material and how
   // the size was measured, not the template, so they always travel with the box.
   const material = {
+    // How the die-cut is laid over the artwork is a project choice, not a template one.
+    ...(current.flipX ? { flipX: true } : {}),
+    ...(current.flipY ? { flipY: true } : {}),
     ...(current.materialThickness !== undefined ? { materialThickness: current.materialThickness } : {}),
     ...(current.dimensionBasis !== undefined ? { dimensionBasis: current.dimensionBasis } : {}),
   };

@@ -36,6 +36,9 @@ interface Props {
   /** Edges where a new face can be attached. Drawn as + handles while face editing is on. */
   faceHandles?: FaceHandle[];
   faceEditing?: boolean;
+  /** The die-cut is mirrored, so a face's template edges appear on the opposite side. */
+  flipX?: boolean;
+  flipY?: boolean;
   onToggleFaceEditing?: (v: boolean) => void;
   onAddFace?: (parentId: string, edge: HingeEdge) => void;
   onRemoveFace?: (panelId: string) => void;
@@ -344,6 +347,8 @@ export default function DielineEditor({
   onToggleLockTemplate,
   faceHandles = [],
   faceEditing = false,
+  flipX = false,
+  flipY = false,
   onToggleFaceEditing,
   onAddFace,
   onRemoveFace,
@@ -622,7 +627,7 @@ export default function DielineEditor({
           <input aria-label="Select artwork through the dieline" type="checkbox" checked={lockTemplate} onChange={(e) => onToggleLockTemplate?.(e.target.checked)} />
           <span><Icon name="image"/> Pick artwork</span>
         </label>
-        {onAddFace && <label className={`toolbar-check${faceEditing ? " selected" : ""}`} title="Show + handles on free edges to add a face, and − on the selected face to remove it.">
+        {onAddFace && <label className={`toolbar-check${faceEditing ? " selected" : ""}`} title="Show + handles on free edges to add a face, and − on each face to remove it.">
           <input aria-label="Edit faces" type="checkbox" checked={faceEditing} onChange={(e) => onToggleFaceEditing?.(e.target.checked)} />
           <span><Icon name="plus"/> Faces ±</span>
         </label>}
@@ -795,20 +800,23 @@ export default function DielineEditor({
             const [maxX, minY] = toStage(panel.max[0], panel.min[1], layout.bounds.height, pxPerMm);
             const midX = (minX + maxX) / 2;
             const midY = (maxY + minY) / 2;
+            // A mirrored die-cut shows the left edge on the right (and top on the bottom).
+            const shown: HingeEdge = handle.edge === "left" || handle.edge === "right" ? (flipX ? (handle.edge === "left" ? "right" : "left") : handle.edge) : flipY ? (handle.edge === "top" ? "bottom" : "top") : handle.edge;
             const at: Record<HingeEdge, [number, number]> = {
               top: [midX, maxY - FACE_HANDLE_GAP],
               bottom: [midX, minY + FACE_HANDLE_GAP],
               left: [minX - FACE_HANDLE_GAP, midY],
               right: [maxX + FACE_HANDLE_GAP, midY],
             };
-            const [hx, hy] = at[handle.edge];
+            const [hx, hy] = at[shown];
             return <FaceButton key={`add-${handle.panelId}-${handle.edge}`} x={hx} y={hy} symbol="+" color="#2563eb" label={`Add a face on the ${handle.edge} edge of ${panel.name}`} onPress={() => onAddFace(handle.panelId, handle.edge)} />;
           })}
-          {onRemoveFace && selectedPanelId && panelById[selectedPanelId] && (() => {
-            const panel = panelById[selectedPanelId];
+          {/* Every face can be removed straight from its corner; the selected one is drawn solid. */}
+          {onRemoveFace && layout.panels.length > 1 && layout.panels.map((panel) => {
             const [rightX, topY] = toStage(panel.max[0], panel.max[1], layout.bounds.height, pxPerMm);
-            return <FaceButton key="remove-face" x={rightX - FACE_HANDLE_GAP} y={topY + FACE_HANDLE_GAP} symbol="−" color="#dc2626" label={`Remove ${panel.name}`} onPress={() => onRemoveFace(panel.id)} />;
-          })()}
+            const selected = panel.id === selectedPanelId;
+            return <FaceButton key={`remove-${panel.id}`} x={rightX - FACE_HANDLE_GAP} y={topY + FACE_HANDLE_GAP} symbol="−" color={selected ? "#dc2626" : "#e48a8a"} label={`Remove ${panel.name}`} onPress={() => onRemoveFace(panel.id)} />;
+          })}
         </Layer>
       )}
 

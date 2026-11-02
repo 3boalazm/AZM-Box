@@ -525,3 +525,9 @@ html[dir="rtl"] .num-field input[type="number"],html[dir="rtl"] .field input[typ
 /* Removing a face from the sidebar */
 .face-remove { width: 100%; min-height: 32px; margin: 4px 0 6px; color: #b91c1c; border-color: #f3c7c7; }
 .face-remove:hover { color: #991b1b; background: #fef2f2; border-color: #e9a3a3; }
+
+/* Die-cut direction */
+.flip-buttons { display: grid; gap: 6px; }
+.flip-button { min-height: 32px; padding: 0 10px; color: var(--text); text-align: start; background: transparent; border: 1px solid var(--border); border-radius: 6px; font-size: 11px; cursor: pointer; }
+.flip-button:hover { background: var(--accent-wash); border-color: #e8cf9e; }
+.flip-button.active { color: var(--accent-strong); background: var(--accent-wash); border-color: #e8cf9e; font-weight: 600; }

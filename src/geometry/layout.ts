@@ -216,6 +216,27 @@ export function computeFlatLayout(root: PanelNode): DielineLayout {
   };
 }
 
+/**
+ * Mirrors the finished die-cut about the middle of its sheet. Only the drawing is
+ * flipped: each face keeps its own artwork frame, so artwork already placed on the
+ * sheet stays exactly where it is while the cut and crease lines move over it.
+ * A vertical flip also toggles `mirrored`, since hinge edges swap top and bottom.
+ */
+export function flipLayout(layout: DielineLayout, flipX: boolean, flipY: boolean): DielineLayout {
+  if (!flipX && !flipY) return layout;
+  const { width, height } = layout.bounds;
+  const flip = ([x, y]: Point): Point => [flipX ? width - x : x, flipY ? height - y : y];
+  return {
+    bounds: layout.bounds,
+    panels: layout.panels.map((panel) => {
+      const points = panel.points.map(flip);
+      return { ...panel, points, origin: flip(panel.origin), ...bboxOf(points), mirrored: flipY ? !panel.mirrored : panel.mirrored };
+    }),
+    cutOutline: layout.cutOutline.map((polyline) => polyline.map(flip)),
+    foldLines: layout.foldLines.map((line) => ({ a: flip(line.a), b: flip(line.b) })),
+  };
+}
+
 export function flattenTree(root: PanelNode): PanelNode[] {
   return [root, ...root.children.flatMap(flattenTree)];
 }

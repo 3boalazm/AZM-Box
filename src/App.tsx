@@ -7,7 +7,7 @@ import StudioTree from "./components/StudioTree";
 import StudioInspector from "./components/StudioInspector";
 import ExportBar from "./components/ExportBar";
 import { BOX_STYLES, getBoxStyle } from "./geometry/boxBuilders";
-import { computeFlatLayout } from "./geometry/layout";
+import { computeFlatLayout, flipLayout } from "./geometry/layout";
 import type { BoxDimensions, BoxStyleId, HingeEdge } from "./geometry/types";
 import { transferDimensionsToTemplate } from "./geometry/templateDimensions";
 import { emptyArtwork } from "./artwork/types";
@@ -100,7 +100,9 @@ export default function App() {
   }, []);
 
   const root = useMemo(() => getBoxStyle(boxStyleId).build(dims), [boxStyleId, dims]);
-  const layout = useMemo(() => computeFlatLayout(root), [root]);
+  const flatLayout = useMemo(() => computeFlatLayout(root), [root]);
+  // Flipping the die-cut only redraws the template; artwork on the sheet stays put.
+  const layout = useMemo(() => flipLayout(flatLayout, !!dims.flipX, !!dims.flipY), [flatLayout, dims.flipX, dims.flipY]);
   const displayedArtwork = useMemo(() => visibleArtwork(artwork, sceneSettings.hiddenLayerIds, sceneSettings.showOutsideArtwork, sceneSettings.showInsideArtwork), [artwork, sceneSettings.hiddenLayerIds, sceneSettings.showOutsideArtwork, sceneSettings.showInsideArtwork]);
 
   // Keep the uploaded full-sheet artwork registered to the root/body panel when
@@ -176,6 +178,8 @@ export default function App() {
   };
 
   const handleChangeDimensions = (next: BoxDimensions) => {
+    // Mirroring moves every face on the sheet; the artwork must not follow the base face.
+    if (!!next.flipX !== !!dims.flipX || !!next.flipY !== !!dims.flipY) skipNextArtworkAnchorAdjust.current = true;
     setDims(next);
     setTemplateMemory((current) => ({ ...current, [boxStyleId]: { ...next } }));
     setSceneSettings((current) => ({ ...current, cameraPose: null }));
@@ -560,6 +564,8 @@ export default function App() {
                 onToggleLockTemplate={setLockTemplate}
                 faceHandles={faceHandles}
                 faceEditing={faceEditing}
+                flipX={!!dims.flipX}
+                flipY={!!dims.flipY}
                 onToggleFaceEditing={setFaceEditing}
                 onAddFace={handleAddFace}
                 onRemoveFace={handleRemoveFace}

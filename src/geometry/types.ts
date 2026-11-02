@@ -113,6 +113,12 @@ export interface BoxDimensions {
   dimensionBasis?: "internal" | "external";
   /** Faces the user removed from, or added to, the template (see panelEdits.ts). */
   panelEdits?: PanelEdits;
+  /**
+   * Mirrors the finished die-cut over its sheet (left↔right / top↔bottom) without
+   * touching the artwork, so a template can be laid over artwork drawn the other way round.
+   */
+  flipX?: boolean;
+  flipY?: boolean;
 }
 
 /** A rectangular face the user attached to a free edge of another face. */

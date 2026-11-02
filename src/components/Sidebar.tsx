@@ -291,6 +291,17 @@ export default function Sidebar({ boxStyleId, dims, layout, onChangeStyle, onCha
       </details>
 
       <details className="inspector-group" open>
+        <summary className="inspector-summary"><span>{t("Die-cut direction")}</span><span className="summary-meta">{dims.flipX || dims.flipY ? t("Flipped") : t("Normal")}</span></summary>
+        <div className="inspector-content">
+          <p className="control-hint">{t("Mirror the die-cut over the sheet without moving the artwork, for artwork drawn the other way round.")}</p>
+          <div className="flip-buttons">
+            <button type="button" className={`flip-button${dims.flipX ? " active" : ""}`} aria-pressed={!!dims.flipX} onClick={() => onChangeDims({ ...dims, flipX: !dims.flipX })}>⇄ {t("Mirror left ↔ right")}</button>
+            <button type="button" className={`flip-button${dims.flipY ? " active" : ""}`} aria-pressed={!!dims.flipY} onClick={() => onChangeDims({ ...dims, flipY: !dims.flipY })}>⇅ {t("Flip top ↕ bottom")}</button>
+          </div>
+        </div>
+      </details>
+
+      <details className="inspector-group" open>
         <summary className="inspector-summary"><span>{t("Faces")}</span><span className="summary-meta">{faceEdits > 0 ? t("{n} edited", { n: faceEdits }) : String(layout.panels.length).padStart(2, "0")}</span></summary>
         <div className="inspector-content">
           <p className="control-hint">{t("Click + on a free edge of the dieline to add a face there. Select a face, then − to remove it.")}</p>
@@ -308,6 +319,8 @@ export default function Sidebar({ boxStyleId, dims, layout, onChangeStyle, onCha
         // The board and how the box was measured belong to the project, not the template.
         ...(dims.materialThickness !== undefined ? { materialThickness: dims.materialThickness } : {}),
         ...(dims.dimensionBasis !== undefined ? { dimensionBasis: dims.dimensionBasis } : {}),
+        ...(dims.flipX ? { flipX: true } : {}),
+        ...(dims.flipY ? { flipY: true } : {}),
       })}>{t("Reset dimensions to template")}</button>
     </aside>
   );
