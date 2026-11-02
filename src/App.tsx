@@ -349,7 +349,7 @@ export default function App() {
             <h4>3D studio</h4><dl><dt>Left-drag</dt><dd>Orbit around the box</dd><dt>Right-drag</dt><dd>Pan the view</dd><dt>Scroll</dt><dd>Zoom in / out</dd></dl>
           </div>}
         </div>
-        <ExportBar layout={layout} artwork={artwork} title={style.label.replace(/\s+/g, "_")} sceneRef={sceneRef} sceneCanvasRef={sceneCanvasRef} transparentSceneExportRef={transparentSceneExportRef} activeTab={activeTab}/>
+        <ExportBar layout={layout} artwork={artwork} title={style.label.replace(/\s+/g, "_")} sceneRef={sceneRef} sceneCanvasRef={sceneCanvasRef} transparentSceneExportRef={transparentSceneExportRef} activeTab={activeTab} onRequest3D={() => setActiveTab("3d")}/>
       </header>
 
       <div className="body" id="workspace">
