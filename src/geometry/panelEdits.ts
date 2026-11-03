@@ -183,7 +183,12 @@ export function faceRemovalLoss(root: PanelNode, panelId: string): string[] {
 
 const withEdits = (dims: BoxDimensions, edits: PanelEdits): BoxDimensions => {
   const { panelEdits: _old, ...rest } = dims;
-  return edits.removed?.length || edits.added?.length ? { ...rest, panelEdits: edits } : rest;
+  const next: PanelEdits = {
+    ...(edits.removed?.length ? { removed: edits.removed } : {}),
+    ...(edits.added?.length ? { added: edits.added } : {}),
+    ...(edits.mirrored?.length ? { mirrored: edits.mirrored } : {}),
+  };
+  return Object.keys(next).length > 0 ? { ...rest, panelEdits: next } : rest;
 };
 
 let addedCounter = 0;
@@ -224,7 +229,9 @@ export function removeFace(dims: BoxDimensions, root: PanelNode, panelId: string
     .filter((face) => !lost.has(face.id))
     .map((face) => (face.parentId === panelId && node.parentId ? { ...face, parentId: node.parentId } : face));
   const removed = wasAdded || (edits.removed ?? []).includes(panelId) ? edits.removed ?? [] : [...(edits.removed ?? []), panelId];
-  return withEdits(dims, { removed: removed.slice(0, MAX_REMOVED), added });
+  // A removed face cannot stay trace-mirrored — drop it from the mirror list too.
+  const mirrored = (edits.mirrored ?? []).filter((id) => !lost.has(id) && id !== panelId);
+  return withEdits(dims, { removed: removed.slice(0, MAX_REMOVED), added, ...(mirrored.length ? { mirrored } : {}) });
 }
 
 export function setAddedFaceDepth(dims: BoxDimensions, id: string, depth: number): BoxDimensions {
@@ -239,7 +246,24 @@ export function clearPanelEdits(dims: BoxDimensions): BoxDimensions {
 }
 
 export function panelEditCount(dims: BoxDimensions): number {
-  return (dims.panelEdits?.removed?.length ?? 0) + (dims.panelEdits?.added?.length ?? 0);
+  return (dims.panelEdits?.removed?.length ?? 0) + (dims.panelEdits?.added?.length ?? 0) + (dims.panelEdits?.mirrored?.length ?? 0);
+}
+
+/** True when the face's trace (cut/fold lines) is currently drawn mirrored. */
+export function isFaceMirrored(dims: BoxDimensions, panelId: string): boolean {
+  return (dims.panelEdits?.mirrored ?? []).includes(panelId);
+}
+
+/**
+ * Toggles horizontal trace-mirroring of a face: its cut outline and fold lines
+ * flip about the face's own centre in the 2D dieline and every export, while
+ * artwork placed on the face is left untouched.
+ */
+export function toggleFaceMirror(dims: BoxDimensions, panelId: string): BoxDimensions {
+  const edits = dims.panelEdits ?? {};
+  const current = edits.mirrored ?? [];
+  const mirrored = current.includes(panelId) ? current.filter((id) => id !== panelId) : [...current, panelId].slice(0, MAX_REMOVED);
+  return withEdits(dims, { removed: edits.removed, added: edits.added, mirrored });
 }
 
 const isId = (value: unknown): value is string => typeof value === "string" && value.length > 0 && value.length <= MAX_ID_LENGTH;
@@ -252,6 +276,7 @@ export function sanitizePanelEdits(raw: unknown): PanelEdits | undefined {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
   const source = raw as Record<string, unknown>;
   const removed = Array.isArray(source.removed) ? [...new Set(source.removed.filter(isId))].slice(0, MAX_REMOVED) : [];
+  const mirrored = Array.isArray(source.mirrored) ? [...new Set(source.mirrored.filter(isId))].slice(0, MAX_REMOVED) : [];
   const seen = new Set<string>();
   const added: AddedFace[] = [];
   for (const entry of Array.isArray(source.added) ? source.added : []) {
@@ -264,5 +289,7 @@ export function sanitizePanelEdits(raw: unknown): PanelEdits | undefined {
     added.push({ id: face.id, parentId: face.parentId, edge: face.edge as HingeEdge, depth: Math.min(MAX_DEPTH_MM, Math.max(MIN_DEPTH_MM, face.depth)) });
     if (added.length >= MAX_ADDED) break;
   }
-  return removed.length || added.length ? { ...(removed.length ? { removed } : {}), ...(added.length ? { added } : {}) } : undefined;
+  return removed.length || added.length || mirrored.length
+    ? { ...(removed.length ? { removed } : {}), ...(added.length ? { added } : {}), ...(mirrored.length ? { mirrored } : {}) }
+    : undefined;
 }

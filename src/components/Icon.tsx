@@ -1,6 +1,6 @@
 import type { ReactNode, SVGProps } from "react";
 
-export type IconName = "box" | "new" | "open" | "save" | "undo" | "redo" | "help" | "dieline" | "cube" | "download" | "chevron" | "image" | "plus" | "trash" | "close" | "crop" | "layers" | "expand" | "more" | "minus" | "ruler" | "lock";
+export type IconName = "box" | "new" | "open" | "save" | "undo" | "redo" | "help" | "dieline" | "cube" | "download" | "chevron" | "image" | "plus" | "trash" | "close" | "crop" | "layers" | "expand" | "more" | "minus" | "ruler" | "lock" | "flip";
 
 const paths: Record<IconName, ReactNode> = {
   box: <><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4.3 7.6 7.7 4.3 7.7-4.3M12 12v9M8 5.2l8 4.5"/></>,
@@ -25,6 +25,8 @@ const paths: Record<IconName, ReactNode> = {
   minus: <path d="M5 12h14"/>,
   ruler: <><path d="M4 7 7 4l13 13-3 3L4 7Z"/><path d="m8 8 2-2m1 5 2-2m1 5 2-2"/></>,
   lock: <><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></>,
+  // Two triangles facing each other: a horizontal mirror.
+  flip: <><path d="M8 4 3 12l5 8V4Z"/><path d="M16 4l5 8-5 8V4Z"/></>,
 };
 
 export default function Icon({ name, ...props }: SVGProps<SVGSVGElement> & { name: IconName }) {

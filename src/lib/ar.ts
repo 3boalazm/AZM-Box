@@ -25,6 +25,8 @@ export const AR: Record<string, string> = {
   "A face cannot be added on that edge.": "لا يمكن إضافة وجه على هذه الحافة.",
   "The last face cannot be removed.": "لا يمكن إزالة آخر وجه.",
   "Remove face": "إزالة الوجه",
+  "Mirror this face's trace (cut/fold lines)": "اعكس تراس هذا الوجه (خطوط القص والثني)",
+  "Flip this face's cut and fold lines horizontally about the face's centre in the dieline and all exports — for dies whose die-cut shows this face (usually the back) mirrored. Artwork placed on the face is not affected.": "تتعكس خطوط القص والثني الخاصة بهذا الوجه أفقيًا حول منتصفه في المخطط وكل ملفات التصدير — لأقوالب القص اللي بيظهر فيها هذا الوجه (عادةً الوجه الخلفي) معكوسًا. التصميم الموضوع على الوجه لا يتأثر.",
   "Removing {name} also removes the {n} flaps and faces hinged to it. You can undo this with Ctrl/⌘ Z.": "إزالة {name} ستزيل أيضاً {n} من الألسنة والأوجه المتصلة بها. يمكنك التراجع بـ Ctrl/⌘ Z.",
   "Faces": "الأوجه",
   "{n} edited": "{n} معدّل",

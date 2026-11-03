@@ -404,6 +404,8 @@
 .studio-color-row input[type=color],.inspector-light-controls input[type=color] { width: 30px; height: 27px; padding: 2px; background: #fffefa; border: 1px solid var(--border); border-radius: 5px; }
 .studio-check-row { display: flex; min-height: 28px; align-items: center; gap: 7px; color: #66635b; font-size: 9px; }
 .studio-check-row input { accent-color: var(--accent-strong); }
+.face-mirror-row { margin: 8px 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 7px; cursor: pointer; }
+.face-mirror-row:has(input:checked) { color: #3f3e38; background: #f1efe9; border-color: var(--accent-strong); }
 .studio-inspector .studio-light-slider { margin: 7px 0 11px; font-size: 9px; }
 .inspector-light { padding: 4px 0 8px; border-top: 1px solid #efede7; }
 .inspector-light-controls { display: flex; align-items: center; gap: 8px; padding-left: 22px; }
