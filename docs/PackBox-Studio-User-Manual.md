@@ -299,6 +299,8 @@ The toolbar at the top left of the canvas has **−**, a percentage readout, and
 
 Zoom ranges from 1 % to 999 %.
 
+Every zoom step is anchored on the point under the cursor (or the view centre for the keyboard keys) and applied in the same frame, so the artwork stays put under your pointer — it never jumps or shakes while you zoom.
+
 ### Panning
 
 As in Adobe apps: hold **Space** and drag (the cursor becomes a hand), or drag with the **middle mouse button**, to pan the canvas.
@@ -340,7 +342,7 @@ Dragging anywhere inside the selection moves it.
 
 ### The image inspector
 
-Whenever a resizable image is selected — the full artwork sheet, or a logo layer — a small floating panel appears at the bottom right of the canvas with:
+A small floating panel at the bottom right of the canvas edits a resizable image — the full artwork sheet, or a logo layer — with:
 
 - a **Width** slider, in millimetres
 - a **Height** slider, in millimetres
@@ -348,7 +350,9 @@ Whenever a resizable image is selected — the full artwork sheet, or a logo lay
 - a **Straighten** button, which sets the angle back to 0°
 - a **Reset image** button, which returns the image to its original size and position
 
-Use the sliders when you want an exact number rather than a drag. Text layers have no independent width and height — resizing text scales its font size instead — so the inspector does not appear for them.
+Use the sliders when you want an exact number rather than a drag. Text layers have no independent width and height — resizing text scales its font size instead — so the inspector never targets them.
+
+The panel is **independent of the selection**: the **Size** button in the canvas toolbar shows or hides it, and its **×** only closes the panel — it does **not** deselect the artwork on the canvas. While an image is selected on the canvas the panel edits that image; otherwise it keeps editing the last image you selected (or the sheet artwork).
 
 ### Mirroring a face's trace
 
@@ -462,6 +466,8 @@ There is deliberately no floor or ground plane, so you can orbit all the way aro
 Your artwork is mapped onto the panels — the outside artwork on outward-facing surfaces, the inside artwork on inward-facing ones. Where a panel has no artwork it renders as plain board colour.
 
 The **Measurements** checkbox next to the slider prints each panel's width and height directly onto its face — a quick way to confirm the model matches the numbers you typed.
+
+The **glue tab** (the end flap that closes the tube) folds to the **inside** of the box at the seam, the way a real glued carton closes — so the outside of the finished box is clean, and the tab itself is visible when you look into the box.
 
 ## 4.13 Exporting
 

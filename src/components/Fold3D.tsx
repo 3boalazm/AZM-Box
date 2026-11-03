@@ -16,6 +16,11 @@ import Icon from "./Icon";
 
 const OrbitControls = lazy(() => import("@react-three/drei").then(({ OrbitControls }) => ({ default: OrbitControls })));
 
+/** Glue/end tabs fold inside the box and end up coplanar with the seam wall; nudge
+ * them this far along their own normal (into the box) so the two surfaces never
+ * z-fight — the wall wins when viewed from outside, the tab from inside. */
+const GLUE_INSET_MM = 0.25;
+
 interface HingeInfo {
   pivot: [number, number, number];
   axis: "x" | "y";
@@ -28,7 +33,11 @@ function computeHinge(node: PanelNode, parentW: number, parentH: number): HingeI
     case "right":
       return { pivot: [parentW, offset, 0], axis: "y", baseAngle: 0 };
     case "left":
-      return { pivot: [0, offset, 0], axis: "y", baseAngle: 0 };
+      // Left-attached panels sit to the LEFT of the parent in the flat sheet
+      // (layout.ts places them at originX - w with an unflipped local frame), so the
+      // hinge must start pre-rotated 180° about Y; their foldAngle (e.g. -TUBE_FOLD
+      // for the left end tab) then lands at a total of +90°, tucking them inside.
+      return { pivot: [0, offset, 0], axis: "y", baseAngle: Math.PI };
     case "top":
       return { pivot: [offset, parentH, 0], axis: "x", baseAngle: 0 };
     case "bottom":
@@ -84,7 +93,7 @@ function PanelMesh({ node, textures, material, showOutsideArtwork, showInsideArt
 
   return (
     <>
-      <mesh geometry={geometry} visible={node.face !== "glue"} castShadow receiveShadow onClick={(event) => { event.stopPropagation(); onSelectPanel?.(node.id); }}>
+      <mesh geometry={geometry} castShadow receiveShadow onClick={(event) => { event.stopPropagation(); onSelectPanel?.(node.id); }}>
         <meshPhysicalMaterial
           key={outsideKey}
           map={showOutsideArtwork ? textures?.outside : undefined}
@@ -139,10 +148,12 @@ function PanelGroup({
 
   return (
     <group position={pivot} rotation={rotation}>
-      <PanelMesh node={node} textures={texturesById.get(node.id)} material={material} showOutsideArtwork={showOutsideArtwork} showInsideArtwork={showInsideArtwork} onSelectPanel={onSelectPanel} />
-      {node.children.map((child) => (
-        <PanelGroup key={child.id} node={child} parentW={node.w} parentH={node.h} foldAmount={foldAmount} texturesById={texturesById} material={material} showOutsideArtwork={showOutsideArtwork} showInsideArtwork={showInsideArtwork} onSelectPanel={onSelectPanel} />
-      ))}
+      <group position={node.face === "glue" ? [0, 0, GLUE_INSET_MM] : [0, 0, 0]}>
+        <PanelMesh node={node} textures={texturesById.get(node.id)} material={material} showOutsideArtwork={showOutsideArtwork} showInsideArtwork={showInsideArtwork} onSelectPanel={onSelectPanel} />
+        {node.children.map((child) => (
+          <PanelGroup key={child.id} node={child} parentW={node.w} parentH={node.h} foldAmount={foldAmount} texturesById={texturesById} material={material} showOutsideArtwork={showOutsideArtwork} showInsideArtwork={showInsideArtwork} onSelectPanel={onSelectPanel} />
+        ))}
+      </group>
     </group>
   );
 }
