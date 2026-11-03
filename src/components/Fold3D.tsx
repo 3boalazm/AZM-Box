@@ -21,6 +21,24 @@ const OrbitControls = lazy(() => import("@react-three/drei").then(({ OrbitContro
  * z-fight — the wall wins when viewed from outside, the tab from inside. */
 const GLUE_INSET_MM = 0.25;
 
+/** One board-caliper step between flap layers. Flaps that close over the same
+ * opening all end up in the SAME plane (zero-thickness model), which z-fights and
+ * lets inner flaps' edges show through the outer flap from outside. Real boxes
+ * stack: each later-closing (outer) flap sits one layer further out. We reproduce
+ * that by nudging every top/bottom flap along its own normal by its closing
+ * order (foldStart): top flaps stack upward (+local Z = outside), bottom flaps
+ * stack downward (outside is -Y, and their local +Z points up into the box). */
+const FLAP_STACK_MM = 0.3;
+
+function flapStackInset(node: PanelNode): number {
+  if (node.parentEdge === "top" || node.parentEdge === "bottom") {
+    const layer = Math.max(0, Math.min(1, node.foldStart ?? 0));
+    return (node.parentEdge === "top" ? 1 : -1) * FLAP_STACK_MM * layer;
+  }
+  if (node.face === "glue" && (node.parentEdge === "left" || node.parentEdge === "right")) return GLUE_INSET_MM;
+  return 0;
+}
+
 interface HingeInfo {
   pivot: [number, number, number];
   axis: "x" | "y";
@@ -146,9 +164,10 @@ function PanelGroup({
   const angle = baseAngle + localT * node.foldAngle;
   const rotation: [number, number, number] = axis === "x" ? [angle, 0, 0] : [0, angle, 0];
 
+  const stackInset = flapStackInset(node);
   return (
     <group position={pivot} rotation={rotation}>
-      <group position={node.face === "glue" ? [0, 0, GLUE_INSET_MM] : [0, 0, 0]}>
+      <group position={[0, 0, stackInset]}>
         <PanelMesh node={node} textures={texturesById.get(node.id)} material={material} showOutsideArtwork={showOutsideArtwork} showInsideArtwork={showInsideArtwork} onSelectPanel={onSelectPanel} />
         {node.children.map((child) => (
           <PanelGroup key={child.id} node={child} parentW={node.w} parentH={node.h} foldAmount={foldAmount} texturesById={texturesById} material={material} showOutsideArtwork={showOutsideArtwork} showInsideArtwork={showInsideArtwork} onSelectPanel={onSelectPanel} />
@@ -227,23 +246,44 @@ function Turntable({ spinRef, enabled }: { spinRef: React.RefObject<THREE.Group 
   return null;
 }
 
-function TransparentCapture({ onReady }: { onReady?: (capture: () => Promise<Blob>) => void }) {
+/** A scene capture that can render at a higher pixel ratio than the on-screen canvas,
+ * so exported PNG/JPG/PDF previews are sharper than the live view. */
+export type SceneCapture = (opts?: { transparent?: boolean; scale?: number; mime?: string }) => Promise<Blob>;
+
+function TransparentCapture({ onReady }: { onReady?: (capture: SceneCapture) => void }) {
   const { gl, scene, camera } = useThree();
   useEffect(() => {
-    onReady?.(() => new Promise<Blob>((resolve, reject) => {
+    onReady?.((opts) => new Promise<Blob>((resolve, reject) => {
+      const transparent = opts?.transparent ?? true;
+      const mime = opts?.mime ?? "image/png";
       const background = scene.background;
       const clearColor = gl.getClearColor(new THREE.Color()).clone();
       const clearAlpha = gl.getClearAlpha();
+      const prevPixelRatio = gl.getPixelRatio();
+      const prevSize = new THREE.Vector2();
+      gl.getSize(prevSize); // CSS size of the canvas
+      // Supersample, but cap the backing store so huge windows don't explode memory.
+      const maxScale = 4096 / Math.max(1, Math.max(prevSize.x, prevSize.y) * prevPixelRatio);
+      const scale = Math.max(1, Math.min(opts?.scale ?? 3, maxScale));
       try {
-        scene.background = null;
-        gl.setClearColor(0x000000, 0);
+        if (transparent) {
+          scene.background = null;
+          gl.setClearColor(0x000000, 0);
+        }
+        // Same CSS size -> camera aspect is unchanged; only the backing store grows.
+        gl.setPixelRatio(prevPixelRatio * scale);
+        gl.setSize(prevSize.x, prevSize.y, false);
         gl.render(scene, camera);
-        gl.domElement.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Could not capture a transparent 3D PNG.")), "image/png");
+        gl.domElement.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Could not capture the 3D scene.")), mime, 0.94);
       } catch (error) {
         reject(error);
       } finally {
-        scene.background = background;
-        gl.setClearColor(clearColor, clearAlpha);
+        gl.setPixelRatio(prevPixelRatio);
+        gl.setSize(prevSize.x, prevSize.y, false);
+        if (transparent) {
+          scene.background = background;
+          gl.setClearColor(clearColor, clearAlpha);
+        }
         gl.render(scene, camera);
       }
     }));
@@ -260,13 +300,13 @@ interface Fold3DProps {
   foldAmount: number;
   sceneSettings: SceneSettings;
   onChangeSceneSettings: React.Dispatch<React.SetStateAction<SceneSettings>>;
-  onTransparentExportReady?: (capture: () => Promise<Blob>) => void;
+  onSceneCaptureReady?: (capture: SceneCapture) => void;
   onSceneReady?: (group: THREE.Group) => void;
   onCanvasReady?: (canvas: HTMLCanvasElement) => void;
   onSelectPanel?: (id: string) => void;
 }
 
-export default function Fold3D({ root, dims, layout, artwork, showDimensions, foldAmount, sceneSettings, onChangeSceneSettings, onTransparentExportReady, onSceneReady, onCanvasReady, onSelectPanel }: Fold3DProps) {
+export default function Fold3D({ root, dims, layout, artwork, showDimensions, foldAmount, sceneSettings, onChangeSceneSettings, onSceneCaptureReady, onSceneReady, onCanvasReady, onSelectPanel }: Fold3DProps) {
   const texturesById = usePanelTextures(layout, artwork, 6, showDimensions);
   const groupRef = useRef<THREE.Group>(null);
   const controlsRef = useRef<StudioControls["current"]>(null);
@@ -385,7 +425,7 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
         <Turntable spinRef={spinRef} enabled={sceneSettings.turntable} />
         <SceneTuning exposure={sceneSettings.exposure} envLight={sceneSettings.envLight} />
         <CameraRig dims={dims} preset={preset} cameraPose={sceneSettings.cameraPose} fov={sceneSettings.fov} resetKey={cameraResetKey} controlsRef={controlsRef} controlsReady={controlsReady} onPresetApplied={storeAppliedPose} />
-        <TransparentCapture onReady={onTransparentExportReady} />
+        <TransparentCapture onReady={onSceneCaptureReady} />
         <Suspense fallback={null}>
           <OrbitControls ref={attachControls as never} makeDefault mouseButtons={mouseButtons} onChange={reportCameraChange} enableDamping dampingFactor={0.08} enableRotate enablePan enableZoom minDistance={5} maxDistance={20000} minPolarAngle={0} maxPolarAngle={Math.PI} minAzimuthAngle={-Infinity} maxAzimuthAngle={Infinity} />
         </Suspense>

@@ -46,11 +46,17 @@ export function assignStableIds(root: PanelNode): PanelNode {
 
 interface Located { node: PanelNode; mirrored: boolean }
 
+function childMirrored(parentMirrored: boolean, edge: HingeEdge | undefined): boolean {
+  if (edge === "bottom") return !parentMirrored;
+  if (edge === "top") return parentMirrored;
+  return false;
+}
+
 function locate(root: PanelNode): Map<string, Located> {
   const found = new Map<string, Located>();
   const visit = (node: PanelNode, mirrored: boolean) => {
     found.set(node.id, { node, mirrored });
-    for (const child of node.children) visit(child, mirrored || child.parentEdge === "bottom");
+    for (const child of node.children) visit(child, childMirrored(mirrored, child.parentEdge));
   };
   visit(root, false);
   return found;
@@ -62,17 +68,21 @@ function locate(root: PanelNode): Map<string, Located> {
  * edge that is neither its own hinge nor already taken by another face.
  */
 function canHost(located: Located, edge: HingeEdge): boolean {
-  const { node, mirrored } = located;
-  if (mirrored || node.outline) return false;
+  const { node } = located;
+  if (node.outline) return false;
   if (node.parentEdge && (node.parentEdge === "top" || node.parentEdge === "bottom" ? edge === "bottom" : edge === OPPOSITE[node.parentEdge])) return false;
   return !node.children.some((child) => child.parentEdge === edge);
 }
 
 const edgeLength = (node: PanelNode, edge: HingeEdge) => (edge === "top" || edge === "bottom" ? node.w : node.h);
 
-function buildAddedFace(face: AddedFace, parent: PanelNode, index: number): PanelNode {
+function buildAddedFace(face: AddedFace, parent: PanelNode, index: number, parentMirrored: boolean): PanelNode {
   const span = edgeLength(parent, face.edge);
   const horizontal = face.edge === "top" || face.edge === "bottom";
+  // A mirrored (bottom-attached) parent's local frame is y-flipped, which reverses
+  // the sense of every fold about it — negate so the new face still closes INWARD
+  // over the box instead of swinging outside (same mirror effect as GLUE_TUCK).
+  const base = FOLD_ANGLE[face.edge];
   return {
     id: face.id,
     name: `Extra face ${index + 1}`,
@@ -81,7 +91,7 @@ function buildAddedFace(face: AddedFace, parent: PanelNode, index: number): Pane
     parentEdge: face.edge,
     parentOffset: 0,
     parentId: parent.id,
-    foldAngle: FOLD_ANGLE[face.edge],
+    foldAngle: parentMirrored ? -base : base,
     foldStart: 0.7,
     foldEnd: 1,
     hinged: true,
@@ -149,9 +159,9 @@ export function applyPanelEdits(root: PanelNode, edits?: PanelEdits): PanelNode 
   (edits.added ?? []).forEach((face, index) => {
     const parent = located.get(face.parentId);
     if (!parent || located.has(face.id) || !canHost(parent, face.edge)) return;
-    const node = buildAddedFace(face, parent.node, index);
+    const node = buildAddedFace(face, parent.node, index, parent.mirrored);
     parent.node.children.push(node);
-    located.set(node.id, { node, mirrored: parent.mirrored || face.edge === "bottom" });
+    located.set(node.id, { node, mirrored: childMirrored(parent.mirrored, face.edge) });
   });
 
   return base;

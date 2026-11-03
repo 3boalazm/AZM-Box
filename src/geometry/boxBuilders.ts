@@ -411,10 +411,12 @@ function buildCardDeckLockLid(dims: BoxDimensions): PanelNode {
     add(front, "front", "Lid (Front)", depths.front, SEQ_LID);
     if (gluePanel && lockDepth > 0) {
       // Drawing's flap 5: hinges off the glue panel, folds inward together with the
-      // back inner flap (after the dust flaps are fully closed), and ends up under the lid's edge as the lock. After the
-      // tube's four quarter-turns the glue panel is parallel to the root wall,
-      // so the same TOP_FOLD/BOTTOM_FOLD sign folds this flap inward too.
-      attach(gluePanel, edge, 0, makePanel({ name: `${cap} Lock Flap`, face: "glue", w: gluePanel.w, h: lockDepth, foldAngle, ...SEQ_INNER }));
+      // back inner flap (after the dust flaps are fully closed), and ends up under the lid's edge as the lock.
+      // The glue panel now tucks INSIDE the seam at a total hinge of +90° (GLUE_TUCK,
+      // previously 0°), which mirrors the sense of top/bottom folds about that panel —
+      // so the signs here are the NEGATION of TOP_FOLD/BOTTOM_FOLD to keep the lock
+      // flaps closing over the top/bottom openings instead of sticking out sideways.
+      attach(gluePanel, edge, 0, makePanel({ name: `${cap} Lock Flap`, face: "glue", w: gluePanel.w, h: lockDepth, foldAngle: -foldAngle, ...SEQ_INNER }));
     }
   }
 

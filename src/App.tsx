@@ -73,7 +73,7 @@ export default function App() {
 
   const sceneRef = useRef<THREE.Group | null>(null);
   const sceneCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const transparentSceneExportRef = useRef<(() => Promise<Blob>) | null>(null);
+  const sceneCaptureRef = useRef<import("./components/Fold3D").SceneCapture | null>(null);
   const skipNextArtworkAnchorAdjust = useRef(false);
   const restorePromptHandled = useRef(false);
   const foldAnimationRef = useRef<number | null>(null);
@@ -520,7 +520,7 @@ export default function App() {
             <h4>3D studio</h4><dl><dt>Left-drag</dt><dd>Orbit around the box</dd><dt>Right-drag</dt><dd>Pan the view</dd><dt>Scroll</dt><dd>Zoom in / out</dd></dl>
           </div>}
         </div>
-        <ExportBar layout={layout} traceLayout={traceLayout} dims={dims} styleDefaults={style.defaultDimensions} artwork={artwork} title={style.label.replace(/\s+/g, "_")} sceneRef={sceneRef} sceneCanvasRef={sceneCanvasRef} transparentSceneExportRef={transparentSceneExportRef} activeTab={activeTab} onRequestTab={setActiveTab}/>
+        <ExportBar layout={layout} traceLayout={traceLayout} dims={dims} styleDefaults={style.defaultDimensions} artwork={artwork} title={style.label.replace(/\s+/g, "_")} sceneRef={sceneRef} sceneCanvasRef={sceneCanvasRef} sceneCaptureRef={sceneCaptureRef} activeTab={activeTab} onRequestTab={setActiveTab}/>
       </header>
 
       <div className="body" id="workspace">
@@ -587,7 +587,7 @@ export default function App() {
           ) : (
             <div className="stage-3d">
               <Suspense fallback={<div className="stage-loading">Loading 3D studio…</div>}>
-                <Fold3D root={root} dims={dims} layout={layout} artwork={displayedArtwork} showDimensions={showDimensions} foldAmount={foldAmount} sceneSettings={sceneSettings} onChangeSceneSettings={setSceneSettings} onTransparentExportReady={(capture) => (transparentSceneExportRef.current = capture)} onSceneReady={(g) => (sceneRef.current = g)} onCanvasReady={(canvas) => (sceneCanvasRef.current = canvas)} onSelectPanel={handleStudioSelectPanel} />
+                <Fold3D root={root} dims={dims} layout={layout} artwork={displayedArtwork} showDimensions={showDimensions} foldAmount={foldAmount} sceneSettings={sceneSettings} onChangeSceneSettings={setSceneSettings} onSceneCaptureReady={(capture) => (sceneCaptureRef.current = capture)} onSceneReady={(g) => (sceneRef.current = g)} onCanvasReady={(canvas) => (sceneCanvasRef.current = canvas)} onSelectPanel={handleStudioSelectPanel} />
               </Suspense>
               <div className="fold-slider" aria-label="3D box folding controls">
                 <div className="fold-progress">
