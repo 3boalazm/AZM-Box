@@ -76,6 +76,7 @@ export async function renderPanelCanvas(
   sheetCanvas: HTMLCanvasElement,
   pxPerMm: number,
   labelText?: string,
+  mirroredIds?: ReadonlySet<string>,
 ): Promise<HTMLCanvasElement> {
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(panel.w * pxPerMm));
@@ -95,6 +96,17 @@ export async function renderPanelCanvas(
   ctx.save();
   outlinePath(ctx, panel, pxPerMm);
   ctx.clip();
+
+  // A face flagged as mirrored (panelEdits.mirrored) gets its placed artwork
+  // (sheet crop or per-panel image) flipped horizontally about the panel's own
+  // centre — the artwork file itself is never modified. Editor layers and the
+  // measurement label are drawn after the flip is undone, so they stay readable.
+  const mirror = mirroredIds?.has(panel.id) === true;
+  if (mirror) {
+    ctx.save();
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+  }
 
   const perPanelSrc = side.panelImages[panel.id];
   if (perPanelSrc) {
@@ -123,6 +135,8 @@ export async function renderPanelCanvas(
       ctx.drawImage(sheetCanvas, sx, syTop, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
     }
   }
+
+  if (mirror) ctx.restore();
 
   for (const layer of side.layers) {
     if (layer.panelId !== panel.id) continue;
@@ -198,22 +212,37 @@ function setupPanelLocalTransform(ctx: CanvasRenderingContext2D, panel: FlatPane
  * text/logo layer) into one full-size canvas — used to embed a flattened preview
  * into the SVG/PDF export.
  */
-export async function renderFullSheetCanvas(layout: DielineLayout, side: SideArtwork, pxPerMm: number): Promise<HTMLCanvasElement> {
+export async function renderFullSheetCanvas(layout: DielineLayout, side: SideArtwork, pxPerMm: number, mirroredIds?: ReadonlySet<string>): Promise<HTMLCanvasElement> {
   const canvas = await buildSheetCanvas(side, layout, pxPerMm);
   const ctx = canvas.getContext("2d")!;
 
   for (const panel of layout.panels) {
     const perPanelSrc = side.panelImages[panel.id];
-    if (!perPanelSrc) continue;
+    const mirror = mirroredIds?.has(panel.id) === true;
+    // A mirrored face without its own image still needs its region of the sheet
+    // re-drawn flipped, otherwise the export would show it unmirrored.
+    if (!perPanelSrc && !mirror) continue;
     ctx.save();
     setupPanelLocalTransform(ctx, panel, layout, pxPerMm);
     outlinePath(ctx, panel, pxPerMm);
     ctx.clip();
-    try {
-      const img = await loadImage(perPanelSrc);
-      ctx.drawImage(img, 0, 0, panel.w * pxPerMm, panel.h * pxPerMm);
-    } catch {
-      /* ignore */
+    if (mirror) {
+      // Flip about the panel's vertical centre line (in its local frame, which for
+      // bottom-attached flaps is already Y-flipped by setupPanelLocalTransform).
+      ctx.translate(panel.w * pxPerMm, 0);
+      ctx.scale(-1, 1);
+    }
+    if (perPanelSrc) {
+      try {
+        const img = await loadImage(perPanelSrc);
+        ctx.drawImage(img, 0, 0, panel.w * pxPerMm, panel.h * pxPerMm);
+      } catch {
+        /* ignore */
+      }
+    } else {
+      const sx = panel.min[0] * pxPerMm;
+      const syTop = (layout.bounds.height - panel.max[1]) * pxPerMm;
+      ctx.drawImage(canvas, sx, syTop, panel.w * pxPerMm, panel.h * pxPerMm, 0, 0, panel.w * pxPerMm, panel.h * pxPerMm);
     }
     ctx.restore();
   }
