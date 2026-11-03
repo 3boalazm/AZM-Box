@@ -9,7 +9,7 @@ import ExportBar from "./components/ExportBar";
 import { BOX_STYLES, getBoxStyle } from "./geometry/boxBuilders";
 import { computeFlatLayout } from "./geometry/layout";
 import { applyTraceMirror, mirroredTraceIds } from "./geometry/traceMirror";
-import type { BoxDimensions, BoxStyleId, HingeEdge } from "./geometry/types";
+import type { BoxDimensions, BoxStyleId, FaceRole, HingeEdge } from "./geometry/types";
 import { transferDimensionsToTemplate } from "./geometry/templateDimensions";
 import { emptyArtwork } from "./artwork/types";
 import { visibleArtwork } from "./artwork/layerVisibility";
@@ -42,6 +42,9 @@ export default function App() {
   const [artwork, setArtwork] = useState(emptyArtwork());
   const [activeSide, setActiveSide] = useState<"outside" | "inside">("outside");
   const [selectedPanelId, setSelectedPanelId] = useState<string | null>(null);
+  // Double-clicking a face on the dieline asks the sidebar to open that face's
+  // section, scroll its measurement control into view and focus it.
+  const [openFace, setOpenFace] = useState<{ face: FaceRole; nonce: number } | null>(null);
   const [faceEditing, setFaceEditing] = useState(true);
   const [selectedArtworkLayerId, setSelectedArtworkLayerId] = useState<string | null>(null);
   const [selectedStudioItem, setSelectedStudioItem] = useState("scene:model");
@@ -142,6 +145,12 @@ export default function App() {
   // what restarts it), and the face tells the sidebar which field to highlight.
   const [panelClickNonce, setPanelClickNonce] = useState(0);
   const selectedPanelFace = layout.panels.find((p) => p.id === selectedPanelId)?.face;
+
+  const handleOpenPanel = (id: string) => {
+    handleSelectPanel(id);
+    const face = layout.panels.find((p) => p.id === id)?.face;
+    if (face) setOpenFace({ face, nonce: Date.now() });
+  };
 
   const handleSelectPanel = (id: string | null) => {
     setSelectedPanelId(id);
@@ -507,7 +516,7 @@ export default function App() {
           {helpOpen && <div className="help-popover" role="dialog" aria-label="Keyboard shortcuts" onClick={(e) => e.stopPropagation()}>
             <div className="help-head"><strong>Keyboard shortcuts</strong><button type="button" className="icon-btn" aria-label="Close shortcuts" onClick={() => setHelpOpen(false)}><Icon name="close"/></button></div>
             <h4>General</h4><dl><dt>⌘Z / Ctrl+Z</dt><dd>Undo</dd><dt>⇧⌘Z / Ctrl+Shift+Z</dt><dd>Redo</dd></dl>
-            <h4>2D editor</h4><dl><dt>Scroll</dt><dd>Zoom to cursor</dd><dt>Space + drag</dt><dd>Pan the canvas</dd><dt>Middle-drag</dt><dd>Pan the canvas</dd><dt>Shift + rotate</dt><dd>Snap to 45°</dd><dt>Drag a handle</dt><dd>Resize freely</dd><dt>Click a panel</dt><dd>Select it and reveal its settings</dd></dl>
+            <h4>2D editor</h4><dl><dt>Scroll / Ctrl/⌘+Scroll</dt><dd>Zoom to cursor</dd><dt>Ctrl/⌘ + and −</dt><dd>Zoom in / out</dd><dt>Ctrl/⌘ 0</dt><dd>Fit the dieline to view</dd><dt>Space + drag</dt><dd>Pan the canvas</dd><dt>Middle-drag</dt><dd>Pan the canvas</dd><dt>Shift + rotate</dt><dd>Snap to 45°</dd><dt>Drag a handle</dt><dd>Resize freely</dd><dt>Click a panel</dt><dd>Select it and flash its setting</dd><dt>Double-click a panel</dt><dd>Jump to its settings</dd></dl>
             <h4>3D studio</h4><dl><dt>Left-drag</dt><dd>Orbit around the box</dd><dt>Right-drag</dt><dd>Pan the view</dd><dt>Scroll</dt><dd>Zoom in / out</dd></dl>
           </div>}
         </div>
@@ -527,6 +536,7 @@ export default function App() {
           highlightNonce={panelClickNonce}
           selectedPanelId={selectedPanelId}
           onRemoveFace={handleRemoveFace}
+          openFace={openFace}
           />
         </div>}
         {activeTab === "2d" && <Sidebar
@@ -539,6 +549,7 @@ export default function App() {
           highlightNonce={panelClickNonce}
           selectedPanelId={selectedPanelId}
           onRemoveFace={handleRemoveFace}
+          openFace={openFace}
         />}
 
         <main className="stage" id="workspace-canvas" role="tabpanel" tabIndex={0} aria-labelledby={activeTab === "2d" ? "view-2d" : "view-3d"} onDragEnter={handleStageDragEnter} onDragOver={handleStageDragOver} onDragLeave={handleStageDragLeave} onDrop={handleStageDrop}>
@@ -548,6 +559,7 @@ export default function App() {
               <Suspense fallback={<div className="stage-loading">Loading 2D editor…</div>}>
               <DielineEditor
                 layout={layout}
+                onOpenPanel={handleOpenPanel}
                 traceLayout={traceLayout}
                 side={displayedArtwork[activeSide]}
                 pxPerMm={2.2}

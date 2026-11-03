@@ -22,6 +22,8 @@ interface Props {
   pxPerMm: number;
   selectedPanelId: string | null;
   onSelectPanel: (id: string | null) => void;
+  /** Double-click on a face: ask the app to jump to that face's settings in the sidebar. */
+  onOpenPanel?: (id: string) => void;
   onUpdateSide: (updater: (side: SideArtwork) => SideArtwork) => void;
   showDimensions?: boolean;
   onToggleDimensions?: (v: boolean) => void;
@@ -338,6 +340,7 @@ export default function DielineEditor({
   pxPerMm: basePxPerMm,
   selectedPanelId,
   onSelectPanel,
+  onOpenPanel,
   onUpdateSide,
   showDimensions,
   onToggleDimensions,
@@ -359,6 +362,12 @@ export default function DielineEditor({
   const selectedLayerId = selectedArtworkLayerId === undefined ? localSelectedLayerId : selectedArtworkLayerId;
   const selectLayer = (id: string | null) => { setLocalSelectedLayerId(id); onSelectArtworkLayer?.(id); };
   const [zoom, setZoom] = useState(1);
+  // Refs so the window-level keyboard handler (registered once) always calls the
+  // current applyZoom/fitToView with the current zoom — Adobe-style Ctrl/⌘ +/−/0.
+  const zoomRef = useRef(1);
+  zoomRef.current = zoom;
+  const applyZoomRef = useRef<(z: number, anchor?: { x: number; y: number }, manual?: boolean) => void>(() => {});
+  const fitToViewRef = useRef<() => void>(() => {});
   const userZoomRef = useRef(false);
   const [shiftHeld, setShiftHeld] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
@@ -446,6 +455,19 @@ export default function DielineEditor({
         // Stop the page/scroll-area from reacting to space itself.
         e.preventDefault();
         setSpaceHeld(true);
+      }
+      // Adobe-style zoom keys: Ctrl/⌘ + / − zoom about the view centre, Ctrl/⌘ 0 fits.
+      if ((e.metaKey || e.ctrlKey) && !isTyping(e)) {
+        if (e.key === "+" || e.key === "=") {
+          e.preventDefault();
+          applyZoomRef.current(zoomRef.current * 1.25);
+        } else if (e.key === "-") {
+          e.preventDefault();
+          applyZoomRef.current(zoomRef.current / 1.25);
+        } else if (e.key === "0") {
+          e.preventDefault();
+          fitToViewRef.current();
+        }
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -600,6 +622,8 @@ export default function DielineEditor({
     });
   };
   const fitToView = () => { userZoomRef.current = false; applyZoom(computeFitZoom(), undefined, false); };
+  applyZoomRef.current = applyZoom;
+  fitToViewRef.current = fitToView;
 
   // Registered natively (not via React's onWheel) so it can be non-passive and
   // therefore actually able to preventDefault the page/zoom gesture.
@@ -620,9 +644,9 @@ export default function DielineEditor({
   return (
     <div className="dieline-canvas-wrap">
       <div className="zoom-toolbar" role="toolbar" aria-label="Dieline canvas tools">
-        <button type="button" aria-label="Zoom out" onClick={() => applyZoom(zoom / 1.25)} title="Zoom out">−</button>
-        <button type="button" className="zoom-readout" onClick={fitToView} title="Fit the full dieline into the canvas">{Math.round(zoom * 100)}%</button>
-        <button type="button" aria-label="Zoom in" onClick={() => applyZoom(zoom * 1.25)} title="Zoom in">+</button>
+        <button type="button" aria-label="Zoom out" onClick={() => applyZoom(zoom / 1.25)} title="Zoom out · Ctrl/⌘ −">−</button>
+        <button type="button" className="zoom-readout" onClick={fitToView} title="Fit the full dieline into the canvas · Ctrl/⌘ 0">{Math.round(zoom * 100)}%</button>
+        <button type="button" aria-label="Zoom in" onClick={() => applyZoom(zoom * 1.25)} title="Zoom in · Ctrl/⌘ +">+</button>
         <span className="toolbar-sep" aria-hidden="true" />
         <label className="toolbar-check" title="Overlay measured dimensions on the dieline.">
           <input aria-label="Show dimensions" type="checkbox" checked={!!showDimensions} onChange={(e) => onToggleDimensions?.(e.target.checked)} />
@@ -759,6 +783,7 @@ export default function DielineEditor({
                 selectLayer(null);
               }}
               onTap={() => onSelectPanel(p.id)}
+              onDblClick={() => onOpenPanel?.(p.id)}
             />
           );
         })}
