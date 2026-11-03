@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Stage, Layer, Line, Arrow, Group, Image as KonvaImage, Text as KonvaText, Rect, Circle, Transformer } from "react-konva";
 import type Konva from "konva";
 import type { DielineLayout, FlatPanel } from "../geometry/types";
@@ -362,10 +362,20 @@ export default function DielineEditor({
   const selectedLayerId = selectedArtworkLayerId === undefined ? localSelectedLayerId : selectedArtworkLayerId;
   const selectLayer = (id: string | null) => { setLocalSelectedLayerId(id); onSelectArtworkLayer?.(id); };
   const [zoom, setZoom] = useState(1);
+  // The floating image-size panel has a life of its own: it does NOT open/close with
+  // the canvas selection. It edits the selected image when there is one, otherwise the
+  // last image that was selected (or the sheet artwork), and the toolbar's Size button
+  // toggles it. Closing it never deselects anything on the canvas.
+  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const lastImageTargetRef = useRef<string | null>(null);
   // Refs so the window-level keyboard handler (registered once) always calls the
   // current applyZoom/fitToView with the current zoom — Adobe-style Ctrl/⌘ +/−/0.
   const zoomRef = useRef(1);
   zoomRef.current = zoom;
+  // Queued viewport scroll correction for the latest applyZoom call, applied in a
+  // layout effect BEFORE the browser paints the resized stage (a rAF would let one
+  // frame paint at the old scroll position — the artwork visibly shakes while zooming).
+  const pendingScrollRef = useRef<{ contentX: number; contentY: number; ax: number; ay: number; next: number } | null>(null);
   const applyZoomRef = useRef<(z: number, anchor?: { x: number; y: number }, manual?: boolean) => void>(() => {});
   const fitToViewRef = useRef<() => void>(() => {});
   const userZoomRef = useRef(false);
@@ -522,8 +532,15 @@ export default function DielineEditor({
    * Returns null when nothing resizable is selected (text layers have no
    * independent width/height), which is what hides the panel.
    */
+  const isImageTargetId = (id: string | null): id is string =>
+    id === SHEET_LAYER_ID || !!side.layers.find((l) => l.id === id && l.kind === "image");
+  const imageTargetId = isImageTargetId(selectedLayerId) ? selectedLayerId : lastImageTargetRef.current;
+  useEffect(() => {
+    if (isImageTargetId(selectedLayerId)) lastImageTargetRef.current = selectedLayerId;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedLayerId, side.layers]);
   const selectedImage = (() => {
-    if (selectedLayerId === SHEET_LAYER_ID && side.sheetImage) {
+    if (imageTargetId === SHEET_LAYER_ID && side.sheetImage) {
       return {
         label: "Sheet artwork",
         width: side.sheetWidth,
@@ -546,7 +563,7 @@ export default function DielineEditor({
           })),
       };
     }
-    const layer = side.layers.find((l) => l.id === selectedLayerId);
+    const layer = side.layers.find((l) => l.id === imageTargetId);
     if (layer && layer.kind === "image") {
       const panel = panelById[layer.panelId];
       return {
@@ -602,9 +619,13 @@ export default function DielineEditor({
   const applyZoom = (nextZoom: number, anchor?: { x: number; y: number }, manual = true) => {
     if (manual) userZoomRef.current = true;
     const vp = viewportRef.current;
-    const prev = zoom;
+    // Read (and update) the ref, not the state: several wheel events can fire within
+    // one frame, before React re-renders, and they must chain off the latest zoom
+    // instead of all computing from the same stale value.
+    const prev = zoomRef.current;
     const next = clampZoom(nextZoom);
     if (next === prev) return;
+    zoomRef.current = next;
     if (!vp) {
       setZoom(next);
       return;
@@ -614,19 +635,29 @@ export default function DielineEditor({
     // Position within the unscaled content that currently sits under the anchor.
     const contentX = (vp.scrollLeft + ax) / prev;
     const contentY = (vp.scrollTop + ay) / prev;
+    // Corrected in the layout effect below, before paint, so the zoom never shows a
+    // one-frame jump (that intermediate frame is what read as the artwork shaking).
+    pendingScrollRef.current = { contentX, contentY, ax, ay, next };
     setZoom(next);
-    // Scroll has to be corrected after the larger/smaller canvas has been laid out.
-    requestAnimationFrame(() => {
-      vp.scrollLeft = contentX * next - ax;
-      vp.scrollTop = contentY * next - ay;
-    });
   };
+  useLayoutEffect(() => {
+    const p = pendingScrollRef.current;
+    if (!p) return;
+    pendingScrollRef.current = null;
+    const vp = viewportRef.current;
+    if (vp) {
+      vp.scrollLeft = p.contentX * p.next - p.ax;
+      vp.scrollTop = p.contentY * p.next - p.ay;
+    }
+  }, [zoom]);
   const fitToView = () => { userZoomRef.current = false; applyZoom(computeFitZoom(), undefined, false); };
   applyZoomRef.current = applyZoom;
   fitToViewRef.current = fitToView;
 
   // Registered natively (not via React's onWheel) so it can be non-passive and
-  // therefore actually able to preventDefault the page/zoom gesture.
+  // therefore actually able to preventDefault the page/zoom gesture. Registered
+  // ONCE and reads the live zoom through refs, so bursts of wheel events chain
+  // correctly instead of all starting from the same stale zoom value.
   useEffect(() => {
     const vp = viewportRef.current;
     if (!vp) return;
@@ -634,12 +665,11 @@ export default function DielineEditor({
       if (!e.ctrlKey && !e.metaKey && Math.abs(e.deltaY) < 1) return;
       e.preventDefault();
       const rect = vp.getBoundingClientRect();
-      applyZoom(zoom * Math.exp(-e.deltaY * 0.0015), { x: e.clientX - rect.left, y: e.clientY - rect.top });
+      applyZoomRef.current(zoomRef.current * Math.exp(-e.deltaY * 0.0015), { x: e.clientX - rect.left, y: e.clientY - rect.top });
     };
     vp.addEventListener("wheel", onWheel, { passive: false });
     return () => vp.removeEventListener("wheel", onWheel);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoom]);
+  }, []);
 
   return (
     <div className="dieline-canvas-wrap">
@@ -656,6 +686,11 @@ export default function DielineEditor({
           <input aria-label="Select artwork through the dieline" type="checkbox" checked={lockTemplate} onChange={(e) => onToggleLockTemplate?.(e.target.checked)} />
           <span><Icon name="image"/> Pick artwork</span>
         </label>
+        {(side.sheetImage || side.layers.some((l) => l.kind === "image")) && (
+          <button type="button" className={`toolbar-toggle${inspectorOpen ? " selected" : ""}`} aria-pressed={inspectorOpen} title="Show or hide the image size panel — it is independent of the canvas selection; closing it does not deselect the artwork." onClick={() => setInspectorOpen((open) => !open)}>
+            <Icon name="ruler"/> Size
+          </button>
+        )}
         {onAddFace && <label className={`toolbar-check${faceEditing ? " selected" : ""}`} title="Show + handles on free edges to add a face, and − on the selected face to remove it.">
           <input aria-label="Edit faces" type="checkbox" checked={faceEditing} onChange={(e) => onToggleFaceEditing?.(e.target.checked)} />
           <span><Icon name="plus"/> Faces ±</span>
@@ -855,12 +890,13 @@ export default function DielineEditor({
       </Stage>
       </div>
 
-      {/* Only rendered while a resizable image is selected — deselecting hides it. */}
-      {selectedImage && (
+      {/* Rendered while the user has the panel open — NOT tied to the canvas
+          selection, so closing it keeps the artwork selected on the canvas. */}
+      {inspectorOpen && selectedImage && (
         <div className="image-inspector">
           <div className="image-inspector-head">
             <strong>{selectedImage.label}</strong>
-            <button type="button" className="icon-btn" title="Deselect" onClick={() => selectLayer(null)}>
+            <button type="button" className="icon-btn" title="Close panel (the artwork stays selected)" onClick={() => setInspectorOpen(false)}>
               ×
             </button>
           </div>

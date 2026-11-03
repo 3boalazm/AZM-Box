@@ -66,6 +66,12 @@ function attach(parent: PanelNode, edge: HingeEdge, offset: number, child: Panel
 const TUBE_FOLD = Math.PI / 2;
 const TOP_FOLD = -Math.PI / 2;
 const BOTTOM_FOLD = Math.PI / 2;
+// End tabs (glue flaps) hinge off the LAST tube wall, whose chain total is 270°.
+// Folding them a full half-turn back (-180°) lands them at a total of 90°: lying
+// flat against the INSIDE of the seam wall with the print side facing the box
+// interior — instead of lying flat on the OUTSIDE of the front wall (total 0°),
+// where the glue tab was visible from the outside of the finished box.
+const GLUE_TUCK = -2 * TUBE_FOLD;
 
 /**
  * Resolves the four per-wall flap depths for a style: the user's explicit value
@@ -93,11 +99,13 @@ function buildTube(dims: BoxDimensions) {
   const back = attach(side1, "right", 0, makePanel({ name: "Back", face: "back", w: L, h: H, foldAngle: TUBE_FOLD, ...PHASE_TUBE }));
   const side2 = attach(back, "right", 0, makePanel({ name: "Side (Right)", face: "right", w: W, h: H, foldAngle: TUBE_FOLD, ...PHASE_TUBE }));
   if (glue > 0) {
-    attach(side2, "right", 0, makePanel({ name: "Glue Flap (Right End)", face: "glue", w: glue, h: H, foldAngle: TUBE_FOLD, ...PHASE_TUBE }));
+    attach(side2, "right", 0, makePanel({ name: "Glue Flap (Right End)", face: "glue", w: glue, h: H, foldAngle: GLUE_TUCK, ...PHASE_TUBE }));
   }
   if (leftEnd > 0) {
-    // Mirror of the glue tab on the opposite end of the strip. Folds the other
-    // way (negative TUBE_FOLD) since it wraps inward from the left instead.
+    // Mirror of the glue tab on the opposite end of the strip. "left" hinges start
+    // at baseAngle PI (see computeHinge in Fold3D.tsx) so the tab extends -X in the
+    // flat sheet exactly like the 2D layout; folding -TUBE_FOLD from there lands at a
+    // total of +90° — tucked INSIDE the seam, same end pose as the right glue tab.
     attach(front, "left", 0, makePanel({ name: "End Flap (Left End)", face: "glue", w: leftEnd, h: H, foldAngle: -TUBE_FOLD, ...PHASE_TUBE }));
   }
 
@@ -387,7 +395,7 @@ function buildCardDeckLockLid(dims: BoxDimensions): PanelNode {
   const side2 = attach(front, "right", 0, makePanel({ name: "Side (Right)", face: "right", w: W, h: H, foldAngle: TUBE_FOLD, ...SEQ_TUBE }));
   const back = attach(side2, "right", 0, makePanel({ name: "Back", face: "back", w: L, h: H, foldAngle: TUBE_FOLD, ...SEQ_TUBE }));
   const gluePanel =
-    glue > 0 ? attach(back, "right", 0, makePanel({ name: "Glue Flap", face: "glue", w: glue, h: H, foldAngle: TUBE_FOLD, ...SEQ_TUBE })) : null;
+    glue > 0 ? attach(back, "right", 0, makePanel({ name: "Glue Flap", face: "glue", w: glue, h: H, foldAngle: GLUE_TUCK, ...SEQ_TUBE })) : null;
 
   for (const edge of ["top", "bottom"] as const) {
     const foldAngle = edge === "top" ? TOP_FOLD : BOTTOM_FOLD;
