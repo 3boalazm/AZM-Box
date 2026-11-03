@@ -286,6 +286,8 @@ Clicking the same panel again replays the flash.
 
 > One exception: on the Card Deck Box (Lock Lid), the small **lock flaps** have no sidebar control of their own. Their depth deliberately follows the back wall's flap depth, so change **Back wall flap** to change them.
 
+**Adding and removing faces** works the same on every box style: turn on **Faces ±** in the canvas toolbar and every free edge of every rectangular face gets a blue **+** — walls, flaps (including the outer edge of a bottom flap), and glue tabs alike. Click **+** to attach a new face there; its depth is editable in the sidebar's **Faces** card, and the red **−** on a selected face removes it together with anything hinged beyond it.
+
 ## 4.8 The 2D editor
 
 ### Zoom
@@ -467,7 +469,7 @@ Your artwork is mapped onto the panels — the outside artwork on outward-facing
 
 The **Measurements** checkbox next to the slider prints each panel's width and height directly onto its face — a quick way to confirm the model matches the numbers you typed.
 
-The **glue tab** (the end flap that closes the tube) folds to the **inside** of the box at the seam, the way a real glued carton closes — so the outside of the finished box is clean, and the tab itself is visible when you look into the box.
+The **glue tab** (the end flap that closes the tube) folds to the **inside** of the box at the seam, the way a real glued carton closes — so the outside of the finished box is clean, and the tab itself is visible when you look into the box. The small **lock flaps** that hang off the glue tab (Card Deck Box — Lock Lid) close over the top and bottom openings from the inside as well, instead of sticking out sideways.
 
 ## 4.13 Exporting
 

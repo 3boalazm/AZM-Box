@@ -175,6 +175,14 @@ for (const t of closed.tips) {
   if (!ok) failures++;
   console.log(`    ${t.name.padEnd(28)} tip=(${t.pos.x.toFixed(1)},${t.pos.y.toFixed(1)},${t.pos.z.toFixed(1)}) inside=${inside ? "yes" : "NO "} printFacesInward=${inward ? "yes" : "NO "}  ${ok ? "OK (tucked inside the seam)" : "BUG (still on the outside)"}`);
 }
+console.log(`\n  Footprint check (every non-wall panel must end inside the box at full fold):`);
+const maxH = Math.max(...closed.walls.map((w) => w.center.y)) * 2; // wall centers sit at H/2
+for (const t of closed.tips) {
+  if (["front", "back", "left", "right"].includes(t.face)) continue;
+  const inside = t.pos.x >= boxMinX && t.pos.x <= boxMaxX && t.pos.z >= boxMinZ && t.pos.z <= boxMaxZ && t.pos.y >= -1 && t.pos.y <= maxH + 1;
+  if (!inside) failures++;
+  console.log(`    ${t.name.padEnd(28)} tip=(${t.pos.x.toFixed(1)},${t.pos.y.toFixed(1)},${t.pos.z.toFixed(1)})  ${inside ? "OK" : "BUG (outside the box)"}`);
+}
 void footprintRadius;
 
 console.log(`\n${failures === 0 ? "ALL OK for this style" : `${failures} PROBLEM(S) FOUND`}`);
