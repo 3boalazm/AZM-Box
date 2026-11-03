@@ -345,6 +345,10 @@ Whenever a resizable image is selected — the full artwork sheet, or a logo lay
 
 Use the sliders when you want an exact number rather than a drag. Text layers have no independent width and height — resizing text scales its font size instead — so the inspector does not appear for them.
 
+### Mirroring a face's trace
+
+Some dies are cut from the mirrored side of the sheet, so one face — usually the back — appears mirrored in the die file. Select that face on the dieline (or in the scene tree) and tick **Mirror this face's trace** in the sidebar's **Faces** section. The face's cut outline and fold lines then flip horizontally about the face's own centre in the 2D drawing and in every export (SVG, PDF, DXF), which is what the mirrored die-cut looks like. A plain rectangular face is unchanged by the flip (a mirrored rectangle is the same rectangle), while asymmetric outlines — dust-flap corners, tuck slots, lock tabs — flip for real, and the face's fold lines swap sides. **Artwork placed on the face is never affected** — the artwork file does not need any editing. The flag is saved in the `.pbox` project, counts towards the *edited* faces badge, and **Restore the template faces** clears it.
+
 ## 4.9 Artwork
 
 The right-hand panel handles everything printed on the box.

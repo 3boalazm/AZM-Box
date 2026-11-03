@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { BOX_STYLES } from "../geometry/boxBuilders";
 import type { BoxDimensions, BoxStyleId, DielineLayout, FaceRole, FlapWall } from "../geometry/types";
 import { FLAP_WALLS } from "../geometry/types";
-import { clearPanelEdits, panelEditCount, setAddedFaceDepth } from "../geometry/panelEdits";
+import { clearPanelEdits, isFaceMirrored, panelEditCount, setAddedFaceDepth, toggleFaceMirror } from "../geometry/panelEdits";
 import { mmToUnit, setPreferences, unitToMm, usePreferences } from "../lib/preferences";
 import type { Unit } from "../lib/preferences";
 import { useT } from "../lib/i18n";
@@ -298,6 +298,10 @@ export default function Sidebar({ boxStyleId, dims, layout, onChangeStyle, onCha
             ? <div className="panel-target"><span className="target-dot"/><span>{selectedFace.name}</span><span className="target-size">{fmt(selectedFace.w)} × {fmt(selectedFace.h)}</span></div>
             : <p className="empty-note">{t("Select a face on the dieline to resize or remove it.")}</p>}
           {selectedAdded && <Field label={t("Face depth")} value={selectedAdded.depth} min={1} onChange={(v) => onChangeDims(setAddedFaceDepth(dims, selectedAdded.id, v))} hint={t("How far the added face reaches from the edge it is hinged to.")} />}
+          {selectedFace && <label className="studio-check-row face-mirror-row" title={t("Flip this face's cut and fold lines horizontally about the face's centre in the dieline and all exports — for dies whose die-cut shows this face (usually the back) mirrored. Artwork placed on the face is not affected.")}>
+            <input type="checkbox" aria-label={t("Mirror this face's trace")} checked={isFaceMirrored(dims, selectedFace.id)} onChange={() => onChangeDims(toggleFaceMirror(dims, selectedFace.id))} />
+            <span>{t("Mirror this face's trace (cut/fold lines)")}</span>
+          </label>}
           {selectedFace && onRemoveFace && layout.panels.length > 1 && <button type="button" className="flap-remove face-remove" onClick={() => onRemoveFace(selectedFace.id)}>− {t("Remove this face")}</button>}
           {faceEdits > 0 && <button type="button" className="text-action" onClick={() => onChangeDims(clearPanelEdits(dims))}>{t("Restore the template faces")}</button>}
         </div>

@@ -8,6 +8,7 @@ import StudioInspector from "./components/StudioInspector";
 import ExportBar from "./components/ExportBar";
 import { BOX_STYLES, getBoxStyle } from "./geometry/boxBuilders";
 import { computeFlatLayout } from "./geometry/layout";
+import { applyTraceMirror, mirroredTraceIds } from "./geometry/traceMirror";
 import type { BoxDimensions, BoxStyleId, HingeEdge } from "./geometry/types";
 import { transferDimensionsToTemplate } from "./geometry/templateDimensions";
 import { emptyArtwork } from "./artwork/types";
@@ -101,6 +102,10 @@ export default function App() {
 
   const root = useMemo(() => getBoxStyle(boxStyleId).build(dims), [boxStyleId, dims]);
   const layout = useMemo(() => computeFlatLayout(root), [root]);
+  // Trace-only mirrored copy of the layout for faces flagged in panelEdits.mirrored:
+  // the cut/fold lines of those faces flip about the face's centre in the 2D view and
+  // in exports, while artwork mapping keeps using the original `layout` (never flipped).
+  const traceLayout = useMemo(() => applyTraceMirror(layout, mirroredTraceIds(dims)), [layout, dims]);
   const displayedArtwork = useMemo(() => visibleArtwork(artwork, sceneSettings.hiddenLayerIds, sceneSettings.showOutsideArtwork, sceneSettings.showInsideArtwork), [artwork, sceneSettings.hiddenLayerIds, sceneSettings.showOutsideArtwork, sceneSettings.showInsideArtwork]);
 
   // Keep the uploaded full-sheet artwork registered to the root/body panel when
@@ -506,7 +511,7 @@ export default function App() {
             <h4>3D studio</h4><dl><dt>Left-drag</dt><dd>Orbit around the box</dd><dt>Right-drag</dt><dd>Pan the view</dd><dt>Scroll</dt><dd>Zoom in / out</dd></dl>
           </div>}
         </div>
-        <ExportBar layout={layout} dims={dims} styleDefaults={style.defaultDimensions} artwork={artwork} title={style.label.replace(/\s+/g, "_")} sceneRef={sceneRef} sceneCanvasRef={sceneCanvasRef} transparentSceneExportRef={transparentSceneExportRef} activeTab={activeTab} onRequestTab={setActiveTab}/>
+        <ExportBar layout={layout} traceLayout={traceLayout} dims={dims} styleDefaults={style.defaultDimensions} artwork={artwork} title={style.label.replace(/\s+/g, "_")} sceneRef={sceneRef} sceneCanvasRef={sceneCanvasRef} transparentSceneExportRef={transparentSceneExportRef} activeTab={activeTab} onRequestTab={setActiveTab}/>
       </header>
 
       <div className="body" id="workspace">
@@ -543,6 +548,7 @@ export default function App() {
               <Suspense fallback={<div className="stage-loading">Loading 2D editor…</div>}>
               <DielineEditor
                 layout={layout}
+                traceLayout={traceLayout}
                 side={displayedArtwork[activeSide]}
                 pxPerMm={2.2}
                 selectedPanelId={selectedPanelId}

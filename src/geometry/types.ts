@@ -129,6 +129,13 @@ export interface PanelEdits {
   /** Ids of template faces to leave out, together with everything hinged beyond them. */
   removed?: string[];
   added?: AddedFace[];
+  /**
+   * Ids of faces whose TRACE (cut outline + fold lines of that face) is drawn
+   * mirrored horizontally about the face's own centre — for dies whose die-cut
+   * shows that face (typically the back) mirrored. Artwork placed on the face is
+   * NOT affected.
+   */
+  mirrored?: string[];
 }
 
 export type BoxStyleId =

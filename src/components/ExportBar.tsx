@@ -17,6 +17,12 @@ import { useT } from "../lib/i18n";
 
 interface Props {
   layout: DielineLayout;
+  /**
+   * Trace-mirrored copy of `layout` (applyTraceMirror) for faces flagged in
+   * panelEdits.mirrored. Cut/fold lines in SVG/PDF/DXF come from this layout;
+   * artwork is always built from the original `layout` and is never mirrored.
+   */
+  traceLayout?: DielineLayout;
   dims: BoxDimensions;
   styleDefaults: BoxDimensions;
   artwork: ArtworkState;
@@ -39,8 +45,10 @@ function forPrint(side: SideArtwork): SideArtwork {
   return { ...side, backgroundColor: "#ffffff" };
 }
 
-export default function ExportBar({ layout, dims, styleDefaults, artwork, title, sceneRef, sceneCanvasRef, transparentSceneExportRef, activeTab, onRequestTab }: Props) {
+export default function ExportBar({ layout, traceLayout, dims, styleDefaults, artwork, title, sceneRef, sceneCanvasRef, transparentSceneExportRef, activeTab, onRequestTab }: Props) {
   const { notify } = useFeedback();
+  // Lines are drawn from the trace-mirrored layout; artwork keeps the original.
+  const lines = traceLayout ?? layout;
   const t = useT();
   const { exportSettings } = usePreferences();
   const [busy, setBusy] = useState<string | null>(null);
@@ -97,7 +105,7 @@ export default function ExportBar({ layout, dims, styleDefaults, artwork, title,
   const exportSVG = () =>
     run("svg", async () => {
       const hasInside = sideHasContent(artwork.inside);
-      const outsideSvg = generateDielineSVG(layout, {
+      const outsideSvg = generateDielineSVG(lines, {
         ...(await artworkFor(artwork.outside)),
         title,
         trimGuide: true,
@@ -111,7 +119,7 @@ export default function ExportBar({ layout, dims, styleDefaults, artwork, title,
         // (and therefore which axis a long-edge flip turns about) isn't known here.
         // Shipping it the right way round keeps it predictable — mirror it in that
         // program if you send it to a duplex printer.
-        const insideSvg = generateDielineSVG(layout, {
+        const insideSvg = generateDielineSVG(lines, {
           ...(await artworkFor(artwork.inside)),
           title,
           trimGuide: true,
@@ -129,7 +137,7 @@ export default function ExportBar({ layout, dims, styleDefaults, artwork, title,
       // needed for print regardless of whether artwork has been added to it yet.
       const outside = await artworkFor(artwork.outside);
       const inside = await artworkFor(artwork.inside);
-      const blob = await exportDielinePDF(layout, {
+      const blob = await exportDielinePDF(lines, {
         outsideArtworkDataUrl: outside.artworkDataUrl,
         outsideArtworkMarkup: outside.artworkMarkup,
         insideArtworkDataUrl: inside.artworkDataUrl,
@@ -147,7 +155,7 @@ export default function ExportBar({ layout, dims, styleDefaults, artwork, title,
 
   const exportDXF = () =>
     run("dxf", async () => {
-      const dxf = generateDielineDXF(layout);
+      const dxf = generateDielineDXF(lines);
       save(`${title}.dxf`, new Blob([dxf], { type: "application/dxf" }));
     });
 

@@ -12,6 +12,12 @@ import Icon from "./Icon";
 
 interface Props {
   layout: DielineLayout;
+  /**
+   * Optional trace-mirrored copy of `layout` (see applyTraceMirror): used ONLY
+   * for drawing the cut/fold lines, so faces flagged in panelEdits.mirrored show
+   * their trace flipped. Artwork, panel hit-areas and dimensions keep `layout`.
+   */
+  traceLayout?: DielineLayout;
   side: SideArtwork;
   pxPerMm: number;
   selectedPanelId: string | null;
@@ -327,6 +333,7 @@ const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 
 export default function DielineEditor({
   layout,
+  traceLayout,
   side,
   pxPerMm: basePxPerMm,
   selectedPanelId,
@@ -358,6 +365,9 @@ export default function DielineEditor({
   // Shadows the `pxPerMm` prop for the rest of this component — every existing
   // toStage()/*pxPerMm computation below picks up the zoomed value automatically.
   const pxPerMm = basePxPerMm * zoom;
+  // Cut/fold lines come from the trace-mirrored layout when provided, so faces
+  // flagged as mirrored draw their trace flipped; everything else uses `layout`.
+  const trace = traceLayout ?? layout;
 
   /**
    * The canvas has to cover more than just the dieline: if the artwork is dragged
@@ -679,7 +689,7 @@ export default function DielineEditor({
 
       {/* Printed lines are drawn above the artwork but never intercept clicks. */}
       <Layer listening={false}>
-        {showCutLines && layout.cutOutline.map((poly, i) => (
+        {showCutLines && trace.cutOutline.map((poly, i) => (
           <Line
             key={`cut-${i}`}
             points={poly.flatMap(([x, y]) => toStage(x, y, layout.bounds.height, pxPerMm))}
@@ -689,7 +699,7 @@ export default function DielineEditor({
             lineJoin="round"
           />
         ))}
-        {showFoldLines && layout.foldLines.map((f, i) => (
+        {showFoldLines && trace.foldLines.map((f, i) => (
           <Line
             key={`fold-${i}`}
             points={[...toStage(f.a[0], f.a[1], layout.bounds.height, pxPerMm), ...toStage(f.b[0], f.b[1], layout.bounds.height, pxPerMm)]}
