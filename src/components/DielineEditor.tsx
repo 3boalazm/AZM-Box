@@ -18,8 +18,6 @@ interface Props {
    * their trace flipped. Artwork, panel hit-areas and dimensions keep `layout`.
    */
   traceLayout?: DielineLayout;
-  /** Faces flagged as mirrored (panelEdits.mirrored): their placed artwork region flips too. */
-  mirroredPanelIds?: ReadonlySet<string>;
   side: SideArtwork;
   pxPerMm: number;
   selectedPanelId: string | null;
@@ -113,36 +111,10 @@ function toStage(mmX: number, mmY: number, boundsHeight: number, pxPerMm: number
   return [mmX * pxPerMm, (boundsHeight - mmY) * pxPerMm];
 }
 
-/** Panel outline as a clip path in ABSOLUTE stage coordinates (Konva evaluates a
- *  Group's clipFunc in stage space, so the clip stays put while children flip). */
-function stageOutlineClip(panel: DielineLayout["panels"][number], boundsHeight: number, pxPerMm: number) {
-  // Konva passes its SceneContext (a CanvasRenderingContext2D subclass) here.
-  return (ctx: any) => {
-    ctx.beginPath();
-    panel.points.forEach((pt, i) => {
-      const [sx, sy] = toStage(pt[0], pt[1], boundsHeight, pxPerMm);
-      if (i === 0) ctx.moveTo(sx, sy);
-      else ctx.lineTo(sx, sy);
-    });
-    ctx.closePath();
-  };
-}
-
-function PanelPerImage({ panel, src, pxPerMm, boundsHeight, mirrored }: { panel: DielineLayout["panels"][number]; src: string; pxPerMm: number; boundsHeight: number; mirrored?: boolean }) {
+function PanelPerImage({ panel, src, pxPerMm, boundsHeight }: { panel: DielineLayout["panels"][number]; src: string; pxPerMm: number; boundsHeight: number }) {
   const img = useImage(src);
   if (!img) return null;
   const [x, y] = toStage(panel.min[0], panel.max[1], boundsHeight, pxPerMm);
-  const w = panel.w * pxPerMm;
-  const h = panel.h * pxPerMm;
-  if (mirrored) {
-    // Flip the image about the face's vertical centre line; the Group clip keeps
-    // the face's TRUE outline (an asymmetric flap must not get a mirrored clip).
-    return (
-      <Group clipFunc={stageOutlineClip(panel, boundsHeight, pxPerMm)} listening={false}>
-        <KonvaImage image={img} x={x + w} y={y} width={w} height={h} scaleX={-1} listening={false} />
-      </Group>
-    );
-  }
   const clipFunc = (ctx: CanvasRenderingContext2D) => {
     ctx.beginPath();
     panel.points.forEach((pt, i) => {
@@ -154,29 +126,7 @@ function PanelPerImage({ panel, src, pxPerMm, boundsHeight, mirrored }: { panel:
     });
     ctx.closePath();
   };
-  return <KonvaImage image={img} x={x} y={y} width={w} height={h} clipFunc={clipFunc} />;
-}
-
-/**
- * Re-draws the full-sheet image over one mirrored face, flipped about the face's
- * vertical centre line and clipped to its outline — the 2D-canvas twin of what
- * renderPanelCanvas does to that face's texture crop.
- */
-function MirroredSheetRegion({ panel, side, layout, pxPerMm }: { panel: DielineLayout["panels"][number]; side: SideArtwork; layout: DielineLayout; pxPerMm: number }) {
-  const img = useImage(side.sheetImage);
-  if (!img) return null;
-  const w = side.sheetWidth * pxPerMm;
-  const h = side.sheetHeight * pxPerMm;
-  const x = side.sheetOffset.x * pxPerMm;
-  const y = layout.bounds.height * pxPerMm - h - side.sheetOffset.y * pxPerMm;
-  const cx = ((panel.min[0] + panel.max[0]) / 2) * pxPerMm;
-  return (
-    <Group clipFunc={stageOutlineClip(panel, layout.bounds.height, pxPerMm)} listening={false}>
-      <Group x={2 * cx} scaleX={-1} listening={false}>
-        <KonvaImage image={img} x={x} y={y} width={w} height={h} rotation={side.sheetRotation} listening={false} />
-      </Group>
-    </Group>
-  );
+  return <KonvaImage image={img} x={x} y={y} width={panel.w * pxPerMm} height={panel.h * pxPerMm} clipFunc={clipFunc} />;
 }
 
 function SheetImageLayer({
@@ -384,7 +334,6 @@ const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 export default function DielineEditor({
   layout,
   traceLayout,
-  mirroredPanelIds,
   side,
   pxPerMm: basePxPerMm,
   selectedPanelId,
@@ -731,13 +680,10 @@ export default function DielineEditor({
             }}
           />
         )}
-        {side.sheetImage && Object.keys(side.panelImages).length === 0 && layout.panels.filter((p) => mirroredPanelIds?.has(p.id)).map((panel) => (
-          <MirroredSheetRegion key={panel.id} panel={panel} side={side} layout={layout} pxPerMm={pxPerMm} />
-        ))}
         {Object.entries(side.panelImages).map(([panelId, src]) => {
           const panel = panelById[panelId];
           if (!panel) return null;
-          return <PanelPerImage key={panelId} panel={panel} src={src} pxPerMm={pxPerMm} boundsHeight={layout.bounds.height} mirrored={mirroredPanelIds?.has(panelId)} />;
+          return <PanelPerImage key={panelId} panel={panel} src={src} pxPerMm={pxPerMm} boundsHeight={layout.bounds.height} />;
         })}
       </Layer>
 

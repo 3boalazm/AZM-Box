@@ -245,8 +245,6 @@ interface Fold3DProps {
   dims: BoxDimensions;
   layout: DielineLayout;
   artwork: ArtworkState;
-  /** Faces flagged as mirrored (panelEdits.mirrored): their artwork texture flips too. */
-  mirroredPanelIds?: ReadonlySet<string>;
   showDimensions: boolean;
   foldAmount: number;
   sceneSettings: SceneSettings;
@@ -257,8 +255,8 @@ interface Fold3DProps {
   onSelectPanel?: (id: string) => void;
 }
 
-export default function Fold3D({ root, dims, layout, artwork, mirroredPanelIds, showDimensions, foldAmount, sceneSettings, onChangeSceneSettings, onTransparentExportReady, onSceneReady, onCanvasReady, onSelectPanel }: Fold3DProps) {
-  const texturesById = usePanelTextures(layout, artwork, 6, showDimensions, mirroredPanelIds);
+export default function Fold3D({ root, dims, layout, artwork, showDimensions, foldAmount, sceneSettings, onChangeSceneSettings, onTransparentExportReady, onSceneReady, onCanvasReady, onSelectPanel }: Fold3DProps) {
+  const texturesById = usePanelTextures(layout, artwork, 6, showDimensions);
   const groupRef = useRef<THREE.Group>(null);
   const controlsRef = useRef<StudioControls["current"]>(null);
   const pendingCameraPose = useRef<CameraPose | null>(null);
