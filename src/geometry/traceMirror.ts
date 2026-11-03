@@ -10,10 +10,11 @@ import type { DielineLayout, FlatPanel, Point } from "./types";
  * paths inside it, and the fold lines on its edges — is flipped horizontally
  * about that face's own vertical centre line.
  *
- * Only the TRACE is mirrored. Artwork mapping (which reads `layout.panels`
- * min/max/points for cropping) must keep using the ORIGINAL layout, so placed
- * artwork is never flipped; pass this mirrored layout only to the places that
- * draw or export cut/fold lines (2D editor overlay, SVG/PDF/DXF exporters).
+ * The same flag (read via mirroredTraceIds) also flips the placed ARTWORK region
+ * of a mirrored face in the 2D canvas, the 3D textures and the exports — the
+ * artwork file itself is never modified. For the artwork pipelines, keep using
+ * the ORIGINAL layout for cropping and pass the id set alongside, so only the
+ * flagged faces' regions flip.
  *
  * A plain rectangular face mirrors onto itself, so for the common back-wall
  * case the cut outline is unchanged while the face's fold lines swap sides —

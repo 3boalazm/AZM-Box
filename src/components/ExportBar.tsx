@@ -23,6 +23,8 @@ interface Props {
    * artwork is always built from the original `layout` and is never mirrored.
    */
   traceLayout?: DielineLayout;
+  /** Faces flagged as mirrored: their placed artwork region flips in exports too. */
+  mirroredPanelIds?: ReadonlySet<string>;
   dims: BoxDimensions;
   styleDefaults: BoxDimensions;
   artwork: ArtworkState;
@@ -45,7 +47,7 @@ function forPrint(side: SideArtwork): SideArtwork {
   return { ...side, backgroundColor: "#ffffff" };
 }
 
-export default function ExportBar({ layout, traceLayout, dims, styleDefaults, artwork, title, sceneRef, sceneCanvasRef, transparentSceneExportRef, activeTab, onRequestTab }: Props) {
+export default function ExportBar({ layout, traceLayout, mirroredPanelIds, dims, styleDefaults, artwork, title, sceneRef, sceneCanvasRef, transparentSceneExportRef, activeTab, onRequestTab }: Props) {
   const { notify } = useFeedback();
   // Lines are drawn from the trace-mirrored layout; artwork keeps the original.
   const lines = traceLayout ?? layout;
@@ -98,8 +100,8 @@ export default function ExportBar({ layout, traceLayout, dims, styleDefaults, ar
   // other side keeps the flattened 8 px/mm bitmap.
   const artworkFor = async (side: SideArtwork): Promise<{ artworkDataUrl?: string; artworkMarkup?: string }> => {
     const printable = forPrint(side);
-    if (sideHasVectorArt(printable)) return { artworkMarkup: buildArtworkMarkup(layout, printable) };
-    return { artworkDataUrl: (await renderFullSheetCanvas(layout, printable, 8)).toDataURL("image/png") };
+    if (sideHasVectorArt(printable)) return { artworkMarkup: buildArtworkMarkup(layout, printable, mirroredPanelIds) };
+    return { artworkDataUrl: (await renderFullSheetCanvas(layout, printable, 8, mirroredPanelIds)).toDataURL("image/png") };
   };
 
   const exportSVG = () =>

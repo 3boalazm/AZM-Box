@@ -106,6 +106,8 @@ export default function App() {
   // the cut/fold lines of those faces flip about the face's centre in the 2D view and
   // in exports, while artwork mapping keeps using the original `layout` (never flipped).
   const traceLayout = useMemo(() => applyTraceMirror(layout, mirroredTraceIds(dims)), [layout, dims]);
+  // The same flag also flips the placed artwork region of mirrored faces (2D/3D/exports).
+  const mirroredPanelIds = useMemo(() => mirroredTraceIds(dims), [dims]);
   const displayedArtwork = useMemo(() => visibleArtwork(artwork, sceneSettings.hiddenLayerIds, sceneSettings.showOutsideArtwork, sceneSettings.showInsideArtwork), [artwork, sceneSettings.hiddenLayerIds, sceneSettings.showOutsideArtwork, sceneSettings.showInsideArtwork]);
 
   // Keep the uploaded full-sheet artwork registered to the root/body panel when
@@ -511,7 +513,7 @@ export default function App() {
             <h4>3D studio</h4><dl><dt>Left-drag</dt><dd>Orbit around the box</dd><dt>Right-drag</dt><dd>Pan the view</dd><dt>Scroll</dt><dd>Zoom in / out</dd></dl>
           </div>}
         </div>
-        <ExportBar layout={layout} traceLayout={traceLayout} dims={dims} styleDefaults={style.defaultDimensions} artwork={artwork} title={style.label.replace(/\s+/g, "_")} sceneRef={sceneRef} sceneCanvasRef={sceneCanvasRef} transparentSceneExportRef={transparentSceneExportRef} activeTab={activeTab} onRequestTab={setActiveTab}/>
+        <ExportBar layout={layout} traceLayout={traceLayout} mirroredPanelIds={mirroredPanelIds} dims={dims} styleDefaults={style.defaultDimensions} artwork={artwork} title={style.label.replace(/\s+/g, "_")} sceneRef={sceneRef} sceneCanvasRef={sceneCanvasRef} transparentSceneExportRef={transparentSceneExportRef} activeTab={activeTab} onRequestTab={setActiveTab}/>
       </header>
 
       <div className="body" id="workspace">
@@ -549,6 +551,7 @@ export default function App() {
               <DielineEditor
                 layout={layout}
                 traceLayout={traceLayout}
+                mirroredPanelIds={mirroredPanelIds}
                 side={displayedArtwork[activeSide]}
                 pxPerMm={2.2}
                 selectedPanelId={selectedPanelId}
@@ -575,7 +578,7 @@ export default function App() {
           ) : (
             <div className="stage-3d">
               <Suspense fallback={<div className="stage-loading">Loading 3D studio…</div>}>
-                <Fold3D root={root} dims={dims} layout={layout} artwork={displayedArtwork} showDimensions={showDimensions} foldAmount={foldAmount} sceneSettings={sceneSettings} onChangeSceneSettings={setSceneSettings} onTransparentExportReady={(capture) => (transparentSceneExportRef.current = capture)} onSceneReady={(g) => (sceneRef.current = g)} onCanvasReady={(canvas) => (sceneCanvasRef.current = canvas)} onSelectPanel={handleStudioSelectPanel} />
+                <Fold3D root={root} dims={dims} layout={layout} artwork={displayedArtwork} mirroredPanelIds={mirroredPanelIds} showDimensions={showDimensions} foldAmount={foldAmount} sceneSettings={sceneSettings} onChangeSceneSettings={setSceneSettings} onTransparentExportReady={(capture) => (transparentSceneExportRef.current = capture)} onSceneReady={(g) => (sceneRef.current = g)} onCanvasReady={(canvas) => (sceneCanvasRef.current = canvas)} onSelectPanel={handleStudioSelectPanel} />
               </Suspense>
               <div className="fold-slider" aria-label="3D box folding controls">
                 <div className="fold-progress">
