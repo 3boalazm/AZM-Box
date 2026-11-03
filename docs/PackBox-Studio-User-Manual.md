@@ -282,6 +282,8 @@ This is the fastest way to answer "which number do I change to make *this* bit b
 
 Clicking the same panel again replays the flash.
 
+**Double-clicking a panel** goes further: the sidebar opens the section that holds that panel's measurement (expanding collapsed sections on the way), scrolls the field into view, flashes it and focuses the input, so you can type a new value immediately. Front/back walls jump to **Length**, side walls to **Width**, top/bottom faces to **Height**, flaps to their wall's flap group, the glue tab to **Right glue tab**, and hand-added faces to the **Faces** card.
+
 > One exception: on the Card Deck Box (Lock Lid), the small **lock flaps** have no sidebar control of their own. Their depth deliberately follows the back wall's flap depth, so change **Back wall flap** to change them.
 
 ## 4.8 The 2D editor
@@ -293,10 +295,13 @@ The toolbar at the top left of the canvas has **−**, a percentage readout, and
 - **−** and **+** step the zoom by 1.25× each click.
 - **Clicking the percentage** resets to 100 %.
 - **Scrolling the mouse wheel** zooms smoothly, and keeps whatever is under your cursor pinned in place — so you can point at a corner and zoom into it directly.
+- Adobe-style keyboard zoom, like Illustrator/Photoshop: **Ctrl/⌘ +** and **Ctrl/⌘ −** zoom in and out about the view centre, and **Ctrl/⌘ 0** fits the whole dieline into the view. **Ctrl/⌘ + scroll** zooms to the cursor as well.
 
 Zoom ranges from 1 % to 999 %.
 
 ### Panning
+
+As in Adobe apps: hold **Space** and drag (the cursor becomes a hand), or drag with the **middle mouse button**, to pan the canvas.
 
 Two ways to move the canvas around:
 

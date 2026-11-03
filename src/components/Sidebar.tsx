@@ -18,6 +18,8 @@ interface Props {
   highlightFace?: FaceRole;
   /** Bumped on every panel click so re-clicking the same panel replays the flash. */
   highlightNonce?: number;
+  /** Set on double-clicking a face in the 2D view: open its section and jump to its control. */
+  openFace?: { face: FaceRole; nonce: number } | null;
   /** The face selected on the dieline, if any. */
   selectedPanelId?: string | null;
   onRemoveFace?: (panelId: string) => void;
@@ -27,24 +29,33 @@ interface Props {
  * Maps a clicked panel's face to the id of the sidebar control that governs it,
  * so clicking a shape in the drawing points you at the field that changes it.
  */
-function controlIdForFace(face: FaceRole): string | null {
+/**
+ * Where a face's settings live in this sidebar: the control id that should
+ * flash, and the DOM element to scroll to (a field label, a flap-wall group,
+ * or the selected-face card for hand-added faces).
+ */
+function faceTarget(face: FaceRole): { flashId: string | null; elementId: string } {
   const flapMatch = /^flap-(?:top|bottom)-(front|back|left|right)$/.exec(face);
-  if (flapMatch) return `flap-${flapMatch[1]}`;
+  if (flapMatch) return { flashId: `flap-${flapMatch[1]}`, elementId: `flap-wall-${flapMatch[1]}` };
   switch (face) {
     case "front":
     case "back":
-      return "length"; // front/back walls are L wide
+      return { flashId: "length", elementId: "control-length" }; // front/back walls are L wide
     case "left":
     case "right":
-      return "width"; // side walls are W deep
+      return { flashId: "width", elementId: "control-width" }; // side walls are W deep
     case "glue":
-      return "endFlapRight";
+      return { flashId: "endFlapRight", elementId: "control-endFlapRight" };
     case "top":
     case "bottom":
-      return "height";
+      return { flashId: "height", elementId: "control-height" };
     default:
-      return null;
+      return { flashId: "face-target", elementId: "face-target-panel" };
   }
+}
+
+function controlIdForFace(face: FaceRole): string | null {
+  return faceTarget(face).flashId;
 }
 
 /** Common board calipers (mm). Typical values; check your supplier's data sheet. */
@@ -80,6 +91,7 @@ function Field({
   max = MAX_DIMENSION_MM,
   hint,
   flash,
+  controlId,
 }: {
   label: string;
   value: number;
@@ -89,6 +101,8 @@ function Field({
   hint?: string;
   /** When true this field plays the brief highlight animation. */
   flash?: boolean;
+  /** DOM id used to scroll to / flash this control when its face is double-clicked. */
+  controlId?: string;
 }) {
   const { unit } = usePreferences();
   const [draft, setDraft] = useState(String(mmToUnit(value, unit)));
@@ -113,7 +127,7 @@ function Field({
   };
 
   return (
-    <label className={`field${flash ? " field-flash" : ""}`} title={hint}>
+    <label id={controlId ? `control-${controlId}` : undefined} className={`field${flash ? " field-flash" : ""}`} title={hint}>
       <span>{label}</span>
       <input
         type="number"
@@ -143,7 +157,7 @@ const WALL_LABELS: Record<FlapWall, string> = {
   right: "Right wall flap",
 };
 
-export default function Sidebar({ boxStyleId, dims, layout, onChangeStyle, onChangeDims, highlightFace, highlightNonce, selectedPanelId, onRemoveFace }: Props) {
+export default function Sidebar({ boxStyleId, dims, layout, onChangeStyle, onChangeDims, highlightFace, highlightNonce, openFace, selectedPanelId, onRemoveFace }: Props) {
   const t = useT();
   const { unit } = usePreferences();
   const style = BOX_STYLES.find((s) => s.id === boxStyleId)!;
@@ -163,6 +177,34 @@ export default function Sidebar({ boxStyleId, dims, layout, onChangeStyle, onCha
       clearTimeout(clear);
     };
   }, [highlightFace, highlightNonce]);
+
+  // Double-clicking a face on the dieline: open every collapsed section on the
+  // way to its control, scroll it into view, flash it and focus the input so the
+  // measurement can be edited right away.
+  useEffect(() => {
+    if (!openFace) return;
+    const { flashId: id, elementId } = faceTarget(openFace.face);
+    const el = document.getElementById(elementId);
+    if (!el || !id) return;
+    let group: HTMLDetailsElement | null = el.closest("details");
+    while (group) {
+      group.open = true;
+      group = group.parentElement?.closest("details") ?? null;
+    }
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setFlashId(null); // drop first so re-double-clicking the same face restarts the animation
+    const start = requestAnimationFrame(() => setFlashId(id));
+    const focusTimer = setTimeout(() => {
+      const input = el.querySelector("input, select") as HTMLElement | null;
+      input?.focus({ preventScroll: true });
+    }, 450);
+    const clear = setTimeout(() => setFlashId(null), 2000);
+    return () => {
+      cancelAnimationFrame(start);
+      clearTimeout(focusTimer);
+      clearTimeout(clear);
+    };
+  }, [openFace]);
 
   const wallPanel = (wall: FlapWall) => layout.panels.find((panel) => panel.face === wall);
   const flapPanel = (edge: "top" | "bottom", wall: FlapWall) => layout.panels.find((panel) => panel.face === `flap-${edge}-${wall}`);
@@ -212,9 +254,9 @@ export default function Sidebar({ boxStyleId, dims, layout, onChangeStyle, onCha
         <summary className="inspector-summary"><span>{t("Overall dimensions")}</span><span className="summary-meta">02</span></summary>
         <div className="inspector-content">
           <div className="dimension-grid">
-            <Field label={t("Length · L")} value={dims.length} onChange={(v) => onChangeDims({ ...dims, length: v })} flash={flashId === "length"} />
-            <Field label={t("Width · W")} value={dims.width} onChange={(v) => onChangeDims({ ...dims, width: v })} flash={flashId === "width"} />
-            <Field label={t("Height · H")} value={dims.height} onChange={(v) => onChangeDims({ ...dims, height: v })} flash={flashId === "height"} />
+            <Field label={t("Length · L")} value={dims.length} onChange={(v) => onChangeDims({ ...dims, length: v })} flash={flashId === "length"} controlId="length" />
+            <Field label={t("Width · W")} value={dims.width} onChange={(v) => onChangeDims({ ...dims, width: v })} flash={flashId === "width"} controlId="width" />
+            <Field label={t("Height · H")} value={dims.height} onChange={(v) => onChangeDims({ ...dims, height: v })} flash={flashId === "height"} controlId="height" />
           </div>
           <span className="control-hint">{basis === "internal" ? t("Finished internal box size") : t("Finished external box size")}</span>
         </div>
@@ -254,7 +296,7 @@ export default function Sidebar({ boxStyleId, dims, layout, onChangeStyle, onCha
             const maxWidth = parent?.w ?? Math.max(dims.length, dims.width);
             const addedDepth = Math.max(10, Math.round((parent?.w ?? dims.length) * 0.35));
             return (
-              <details className="flap-wall" key={wall}>
+              <details className="flap-wall" key={wall} id={`flap-wall-${wall}`}>
                 <summary><span>{t(WALL_LABELS[wall])}</span><span className="flap-size-summary">{mmToUnit(topDepth, unit)} / {mmToUnit(bottomDepth, unit)} {unit}</span></summary>
                 <div className="flap-wall-content">
                   <div className="flap-pair">
@@ -284,7 +326,7 @@ export default function Sidebar({ boxStyleId, dims, layout, onChangeStyle, onCha
         <summary className="inspector-summary"><span>{t("End closures")}</span><span className="summary-meta">04</span></summary>
         <div className="inspector-content">
           <p className="control-hint">{t("Tabs at each end of the unfolded strip.")}</p>
-          <Field label={t("Right glue tab")} value={dims.endFlapRight ?? 0} min={0} onChange={(v) => onChangeDims({ ...dims, endFlapRight: v })} hint={t("The manufacturer's glue tab that bonds the tube closed.")} flash={flashId === "endFlapRight"} />
+          <Field label={t("Right glue tab")} value={dims.endFlapRight ?? 0} min={0} onChange={(v) => onChangeDims({ ...dims, endFlapRight: v })} hint={t("The manufacturer's glue tab that bonds the tube closed.")} flash={flashId === "endFlapRight"} controlId="endFlapRight" />
           <Field label={t("Left end tab")} value={dims.endFlapLeft ?? 0} min={0} onChange={(v) => onChangeDims({ ...dims, endFlapLeft: v })} hint={t("Optional matching tab; set 0 mm for none.")} />
           {boxStyleId === "mailer" && <Field label={t("Lid tuck depth")} value={Math.round(dims.lidDepth ?? dims.height * 0.9)} min={1} onChange={(v) => onChangeDims({ ...dims, lidDepth: v })} />}
         </div>
@@ -295,7 +337,7 @@ export default function Sidebar({ boxStyleId, dims, layout, onChangeStyle, onCha
         <div className="inspector-content">
           <p className="control-hint">{t("Click + on a free edge of the dieline to add a face there. Select a face, then − to remove it.")}</p>
           {selectedFace
-            ? <div className="panel-target"><span className="target-dot"/><span>{selectedFace.name}</span><span className="target-size">{fmt(selectedFace.w)} × {fmt(selectedFace.h)}</span></div>
+            ? <div id="face-target-panel" className={`panel-target${flashId === "face-target" ? " field-flash" : ""}`}><span className="target-dot"/><span>{selectedFace.name}</span><span className="target-size">{fmt(selectedFace.w)} × {fmt(selectedFace.h)}</span></div>
             : <p className="empty-note">{t("Select a face on the dieline to resize or remove it.")}</p>}
           {selectedAdded && <Field label={t("Face depth")} value={selectedAdded.depth} min={1} onChange={(v) => onChangeDims(setAddedFaceDepth(dims, selectedAdded.id, v))} hint={t("How far the added face reaches from the edge it is hinged to.")} />}
           {selectedFace && <label className="studio-check-row face-mirror-row" title={t("Flip this face's cut and fold lines horizontally about the face's centre in the dieline and all exports — for dies whose die-cut shows this face (usually the back) mirrored. Artwork placed on the face is not affected.")}>
