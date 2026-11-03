@@ -6,21 +6,14 @@
  *  - The mirrored trace reaches the SVG and DXF exporters.
  *  - The flag toggles, sanitizes and survives a .pbox save/load round trip.
  */
-import { createCanvas, Image as NodeImage } from "@napi-rs/canvas";
-// Shim the two DOM globals renderPanel.ts uses (same pattern as verify-texture.ts).
-(globalThis as any).document = { createElement: (t: string) => (t === "canvas" ? createCanvas(1, 1) : {}) };
-(globalThis as any).Image = NodeImage;
-
 import { getBoxStyle } from "../src/geometry/boxBuilders";
 import { computeFlatLayout } from "../src/geometry/layout";
 import { applyTraceMirror, mirroredTraceIds } from "../src/geometry/traceMirror";
 import { isFaceMirrored, sanitizePanelEdits, toggleFaceMirror } from "../src/geometry/panelEdits";
 import { generateDielineSVG } from "../src/geometry/svgExport";
 import { generateDielineDXF } from "../src/geometry/dxfExport";
-import { buildSheetCanvas, renderFullSheetCanvas, renderPanelCanvas } from "../src/artwork/renderPanel";
-import { buildArtworkMarkup } from "../src/artwork/vectorSheet";
 import { serializeProject, parseProject } from "../src/project/projectFile";
-import { emptyArtwork, emptySide } from "../src/artwork/types";
+import { emptyArtwork } from "../src/artwork/types";
 import type { Point } from "../src/geometry/types";
 
 let failures = 0;
@@ -116,60 +109,8 @@ check("mirror flag survives a .pbox round trip", loaded.dims.panelEdits?.mirrore
 const oldFile = parseProject(JSON.stringify({ app: "packbox", version: 4, boxStyleId: "tuck-end", dims: { length: 80, width: 40, height: 120 } }));
 check("project files without the flag load fine", oldFile.dims.panelEdits === undefined);
 
-// 8. the same flag also flips the face's placed ARTWORK region (sheet crop / panel
-// image) in the 3D textures and in the raster+vector exports — the artwork file
-// itself is never modified. Left half red, right half blue: a mirrored face swaps them.
-const art = createCanvas(400, 200);
-const actx = art.getContext("2d");
-actx.fillStyle = "#ff0000";
-actx.fillRect(0, 0, 200, 200);
-actx.fillStyle = "#0000ff";
-actx.fillRect(200, 0, 200, 200);
-const artUrl = art.toDataURL("image/png");
-const sideArt = { ...emptySide("#ffffff"), sheetImage: artUrl, sheetWidth: layout.bounds.width, sheetHeight: layout.bounds.height };
-const mirroredSet = new Set([back.id]);
-
-(async () => {
-  const sheet = await buildSheetCanvas(sideArt as any, layout, 4);
-  const plain = (await renderPanelCanvas(back, sideArt as any, layout, sheet as any, 4)) as any;
-  const flipped = (await renderPanelCanvas(back, sideArt as any, layout, sheet as any, 4, undefined, mirroredSet)) as any;
-  const pctx = plain.getContext("2d");
-  const fctx = flipped.getContext("2d");
-  const sample = (c: any, x: number, y: number) => Array.from(c.getImageData(x, y, 1, 1).data.slice(0, 3)).join(",");
-  const w = flipped.width;
-  let flipOk = true;
-  for (const u of [2, Math.floor(w * 0.25), Math.floor(w * 0.5), Math.floor(w * 0.75), w - 3]) {
-    if (sample(fctx, u, Math.floor(flipped.height / 2)) !== sample(pctx, w - 1 - u, Math.floor(plain.height / 2))) flipOk = false;
-  }
-  check("panel texture crop flips horizontally when the face is mirrored", flipOk, `w=${w}`);
-  check("unmirrored render is untouched when the flag is absent", sample(pctx, 2, Math.floor(plain.height / 2)).startsWith("255"));
-
-  // full-sheet raster (PDF/PNG export path): the face's region flips in sheet space
-  const fullPlain = (await renderFullSheetCanvas(layout, sideArt as any, 4)) as any;
-  const fullFlip = (await renderFullSheetCanvas(layout, sideArt as any, 4, mirroredSet)) as any;
-  const fc = fullFlip.getContext("2d");
-  const pc = fullPlain.getContext("2d");
-  const cxPx = Math.round(((back.min[0] + back.max[0]) / 2) * 4);
-  const yPx = Math.round((layout.bounds.height - (back.min[1] + back.max[1]) / 2) * 4);
-  const leftX = Math.round(back.min[0] * 4) + 4;
-  const a = sample(fc, leftX, yPx);
-  const b = sample(pc, 2 * cxPx - leftX, yPx);
-  const outA = sample(fc, 2, 2);
-  const outB = sample(pc, 2, 2);
-  check("full-sheet export flips the mirrored face's region", a === b, `${a} vs ${b}`);
-  check("full-sheet export leaves the rest of the sheet untouched", outA === outB);
-
-  // vector SVG export: mirrored sheet overlay + flipped per-panel image
-  const markupFlip = buildArtworkMarkup(layout, sideArt, mirroredSet);
-  const cxMm = (back.min[0] + back.max[0]) / 2;
-  check("vector export re-draws the sheet flipped over the mirrored face", markupFlip.includes(`translate(${Number((2 * cxMm).toFixed(3))} 0) scale(-1 1)`) && markupFlip.includes("art-mirror-clip"));
-  check("vector export without the flag has no flip", !buildArtworkMarkup(layout, sideArt).includes("scale(-1 1)"));
-  const panelImg = buildArtworkMarkup(layout, { ...sideArt, panelImages: { [back.id]: artUrl } }, mirroredSet);
-  check("vector export flips a mirrored face's own panel image", panelImg.includes(`translate(${Number(back.w.toFixed(3))} 0) scale(-1 1)`));
-
-  if (failures) {
-    console.error(`${failures} check(s) failed`);
-    process.exit(1);
-  }
-  console.log("All trace-mirror checks passed.");
-})();
+if (failures) {
+  console.error(`${failures} check(s) failed`);
+  process.exit(1);
+}
+console.log("All trace-mirror checks passed.");

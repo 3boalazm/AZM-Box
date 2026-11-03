@@ -16,7 +16,7 @@ export interface PanelTextures {
  * panel through every fold rotation instead of needing a separate screen-space
  * overlay (which would have to be re-projected and re-oriented every frame).
  */
-export function usePanelTextures(layout: DielineLayout, artwork: ArtworkState, pxPerMm = 6, showDimensions = false, mirroredIds?: ReadonlySet<string>): Map<string, PanelTextures> {
+export function usePanelTextures(layout: DielineLayout, artwork: ArtworkState, pxPerMm = 6, showDimensions = false): Map<string, PanelTextures> {
   const [textures, setTextures] = useState<Map<string, PanelTextures>>(new Map());
 
   useEffect(() => {
@@ -29,8 +29,8 @@ export function usePanelTextures(layout: DielineLayout, artwork: ArtworkState, p
 
       for (const panel of layout.panels) {
         const label = showDimensions ? `${panel.w.toFixed(0)} × ${panel.h.toFixed(0)}` : undefined;
-        const outCanvas = await renderPanelCanvas(panel, artwork.outside, layout, outsideSheet, pxPerMm, label, mirroredIds);
-        const inCanvas = await renderPanelCanvas(panel, artwork.inside, layout, insideSheet, pxPerMm, undefined, mirroredIds);
+        const outCanvas = await renderPanelCanvas(panel, artwork.outside, layout, outsideSheet, pxPerMm, label);
+        const inCanvas = await renderPanelCanvas(panel, artwork.inside, layout, insideSheet, pxPerMm);
 
         const outTex = new THREE.CanvasTexture(outCanvas);
         outTex.colorSpace = THREE.SRGBColorSpace;
@@ -71,7 +71,7 @@ export function usePanelTextures(layout: DielineLayout, artwork: ArtworkState, p
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layout, artwork, pxPerMm, showDimensions, mirroredIds]);
+  }, [layout, artwork, pxPerMm, showDimensions]);
 
   return textures;
 }
