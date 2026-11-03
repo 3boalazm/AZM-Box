@@ -471,9 +471,13 @@ The **Measurements** checkbox next to the slider prints each panel's width and h
 
 The **glue tab** (the end flap that closes the tube) folds to the **inside** of the box at the seam, the way a real glued carton closes — so the outside of the finished box is clean, and the tab itself is visible when you look into the box. The small **lock flaps** that hang off the glue tab (Card Deck Box — Lock Lid) close over the top and bottom openings from the inside as well, instead of sticking out sideways.
 
+### Flap layers
+
+Real boxes stack their flaps: whatever closes **first** ends up **underneath**, and each later flap lies one board thickness further out, so the last flap you close is the one you see from outside. The 3D preview reproduces exactly that — every flap over the same opening is nudged one board-caliper step (0.3 mm) along its own face according to its closing order. You therefore never see the edges of inner flaps bleeding through the outer ones when the box is closed, at the top or the bottom; the closing order in the slider table above is also the physical stacking order.
+
 ## 4.13 Exporting
 
-The export buttons live at the right of the top bar. A **Print measurements** checkbox sits alongside them; when ticked, the dimension arrows are drawn into the exported SVG and PDF. Leave it off for production artwork — it is for checking and for printed mock-ups.
+The export buttons live at the end of the top bar (the right in English, the left in Arabic). A **Print measurements** checkbox sits alongside them; when ticked, the dimension arrows are drawn into the exported SVG and PDF. Leave it off for production artwork — it is for checking and for printed mock-ups. The **•••** menu opens a popover of further export options that always fits inside the window — on phones and in Arabic it anchors to the correct screen edge instead of running off-screen.
 
 ### Export SVG
 
@@ -502,6 +506,10 @@ A CAD file for a die maker or a cutting table, with cut lines on a layer named *
 Exports the folded 3D model, with your artwork baked in as textures, as a `.glb` file — the standard format for 3D on the web and in most 3D software.
 
 **This button only works while the 3D tab is open**, because it exports the live scene. It is greyed out on the 2D tab.
+
+### Scene images (PNG / JPG / PDF / transparent PNG)
+
+The **•••** menu also exports the current 3D view as a picture: **Scene image · PNG**, **· JPG**, **Scene PDF** (landscape A4) and **· PNG transparent** (alpha channel, for compositing). These are captured from the live scene, but re-rendered at **3× the on-screen resolution** (capped at a 4096 px edge) just for the export, so the files are noticeably sharper than the preview you see on screen — handy since your SVG artwork is vector and stays crisp at any size. The 2D exports (SVG and the dieline PDF) keep SVG artwork as true vector markup, never rasterised.
 
 ---
 
