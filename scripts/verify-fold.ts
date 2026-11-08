@@ -30,7 +30,7 @@ function computeHinge(node: PanelNode, parentW: number, parentH: number): HingeI
   }
 }
 
-function buildGroup(node: PanelNode, parentW: number, parentH: number, foldAmount: number): THREE.Group {
+function buildGroup(node: PanelNode, parentW: number, parentH: number, foldAmount: number, parentFace = ""): THREE.Group {
   const { pivot, axis, baseAngle } = computeHinge(node, parentW, parentH);
   const start = node.foldStart ?? 0;
   const end = node.foldEnd ?? 1;
@@ -50,6 +50,7 @@ function buildGroup(node: PanelNode, parentW: number, parentH: number, foldAmoun
   marker.name = `${node.name}::tip`;
   marker.userData.face = node.face;
   marker.userData.parentEdge = node.parentEdge ?? "";
+  marker.userData.parentFace = parentFace;
   group.add(marker);
 
   if (["front", "back", "left", "right"].includes(node.face)) {
@@ -60,18 +61,18 @@ function buildGroup(node: PanelNode, parentW: number, parentH: number, foldAmoun
   }
 
   for (const child of node.children) {
-    group.add(buildGroup(child, node.w, node.h, foldAmount));
+    group.add(buildGroup(child, node.w, node.h, foldAmount, node.face));
   }
   return group;
 }
 
-function collectTips(group: THREE.Object3D, out: { name: string; pos: THREE.Vector3; normal: THREE.Vector3; face: string; parentEdge: string }[]) {
+function collectTips(group: THREE.Object3D, out: { name: string; pos: THREE.Vector3; normal: THREE.Vector3; face: string; parentEdge: string; parentFace: string }[]) {
   group.updateWorldMatrix(true, false);
   if (group.name.endsWith("::tip")) {
     const pos = new THREE.Vector3();
     group.getWorldPosition(pos);
     const normal = new THREE.Vector3(0, 0, 1).transformDirection(group.parent ? group.parent.matrixWorld : group.matrixWorld);
-    out.push({ name: group.name.replace("::tip", ""), pos, normal, face: group.userData.face ?? "", parentEdge: group.userData.parentEdge ?? "" });
+    out.push({ name: group.name.replace("::tip", ""), pos, normal, face: group.userData.face ?? "", parentEdge: group.userData.parentEdge ?? "", parentFace: group.userData.parentFace ?? "" });
   }
   for (const child of group.children) collectTips(child, out);
 }
@@ -97,7 +98,7 @@ console.log(`\n=== ${style.label} — L${dims.length} W${dims.width} H${dims.hei
 function tipsAt(t: number) {
   const sceneRoot = buildGroup(root, root.w, root.h, t);
   sceneRoot.updateWorldMatrix(true, true);
-  const tips: { name: string; pos: THREE.Vector3 }[] = [];
+  const tips: { name: string; pos: THREE.Vector3; normal: THREE.Vector3; face: string; parentEdge: string; parentFace: string }[] = [];
   collectTips(sceneRoot, tips);
   const walls: { name: string; center: THREE.Vector3; normal: THREE.Vector3 }[] = [];
   collectWallNormals(sceneRoot, walls);
@@ -182,6 +183,19 @@ for (const t of closed.tips) {
   const inside = t.pos.x >= boxMinX && t.pos.x <= boxMaxX && t.pos.z >= boxMinZ && t.pos.z <= boxMaxZ && t.pos.y >= -1 && t.pos.y <= maxH + 1;
   if (!inside) failures++;
   console.log(`    ${t.name.padEnd(28)} tip=(${t.pos.x.toFixed(1)},${t.pos.y.toFixed(1)},${t.pos.z.toFixed(1)})  ${inside ? "OK" : "BUG (outside the box)"}`);
+}
+console.log(`\n  Rim check (wall flaps must fold flat over their opening, not rotate past it onto/behind a wall):`);
+for (const t of closed.tips) {
+  if (t.parentEdge !== "top" && t.parentEdge !== "bottom") continue;
+  if (!["front", "back", "left", "right"].includes(t.parentFace)) continue;
+  // A top/bottom flap hinged straight off a wall closes as a horizontal cover at
+  // the rim (y = H for top, y = 0 for bottom). A tip anywhere else means the flap
+  // rotated PAST its closed pose — e.g. the old mailer lid, which flipped a full
+  // half-turn and ended lying flat against the OUTSIDE of the rear wall.
+  const rim = t.parentEdge === "top" ? maxH : 0;
+  const atRim = Math.abs(t.pos.y - rim) <= 1;
+  if (!atRim) failures++;
+  console.log(`    ${t.name.padEnd(28)} tip.y=${t.pos.y.toFixed(1).padStart(6)} (rim ${rim.toFixed(0)})  ${atRim ? "OK (folded over the opening)" : "BUG (rotated past the closed pose)"}`);
 }
 void footprintRadius;
 

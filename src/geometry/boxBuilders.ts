@@ -1,4 +1,4 @@
-import type { BoxDimensions, BoxStyleDefinition, BoxStyleId, FaceRole, FlapWall, HingeEdge, PanelNode } from "./types";
+import type { BoxDimensions, BoxStyleDefinition, BoxStyleId, FaceRole, FlapWall, HingeEdge, PanelNode, Point } from "./types";
 import { FLAP_WALLS } from "./types";
 import { applyPanelEdits, assignStableIds } from "./panelEdits";
 import { boundsOf, dustFlap, lockTab, rect, roundedTuckFlap, smallDustFlap, tuckFlap } from "./shapes";
@@ -320,13 +320,15 @@ function buildMailer(dims: BoxDimensions): PanelNode {
   const depths = resolveFlaps(dims, { front: lockDefault, back: lockDefault, left: lockDefault, right: lockDefault });
   back.name = "Back / Lid";
 
-  // Lid hinges off the back panel (mailer style: lid folds over the top). A 180 degree
-  // hinge is symmetric in its resting angle regardless of sign, so TOP_FOLD*2 here just
-  // means "use the same winding convention as everything else" for consistency.
-  const lid = attach(back, "top", 0, makePanel({ name: "Lid Top", face: "top", w: back.w, h: H, foldAngle: TOP_FOLD * 2, foldStart: 0.55, foldEnd: 0.85 }));
-  // Lid Top is already flipped 180 degrees, which reverses which sign of its own
-  // children's rotation reads as "inward" — hence -TOP_FOLD here, not TOP_FOLD.
-  attach(lid, "top", 0, makePanel({ name: "Lid Tuck Flap", face: "flap-top-back", w: lid.w, h: lidDepth, outline: tuckFlap(lid.w, lidDepth), foldAngle: -TOP_FOLD, foldStart: 0.85, foldEnd: 1 }));
+  // Lid hinges off the back panel (mailer style: lid folds over the top). A quarter
+  // turn (-90°, same winding as TOP_FOLD) lands the lid flat over the top opening —
+  // the closed pose. (An earlier version used a half turn, which flipped the lid all
+  // the way back against the OUTSIDE of the rear wall at 100% and left its tuck
+  // tongue hanging into the base: closed meant "wide open".)
+  const lid = attach(back, "top", 0, makePanel({ name: "Lid Top", face: "top", w: back.w, h: H, foldAngle: TOP_FOLD, foldStart: 0.7, foldEnd: 0.9 }));
+  // The tuck tongue keeps folding the same way (TOP_FOLD) so it bends down INTO the
+  // box along the lid's far edge instead of arcing back outside.
+  attach(lid, "top", 0, makePanel({ name: "Lid Tuck Flap", face: "flap-top-back", w: lid.w, h: lidDepth, outline: tuckFlap(lid.w, lidDepth), foldAngle: TOP_FOLD, foldStart: 0.9, foldEnd: 1 }));
   // Side dust flaps under the lid use the same per-wall depth as their matching
   // bottom lock tab, so left/right stay symmetrical top-to-bottom.
   const addSideDust = (parent: PanelNode, wall: FlapWall, label: string) => {
@@ -553,7 +555,12 @@ function applyCustomFlaps(root: PanelNode, dims: BoxDimensions): PanelNode {
       }
       const panel = makePanel({
         name: `${edge === "top" ? "Top" : "Bottom"} Flap (${wall})`, face, w: width, h: depth,
-        foldAngle: edge === "top" ? TOP_FOLD : BOTTOM_FOLD, foldStart: 0.7, foldEnd: 1,
+        foldAngle: edge === "top" ? TOP_FOLD : BOTTOM_FOLD,
+        // Same closing order as the template builders and added faces: side-wall
+        // flaps close first (inner layer under the face flaps), front/back flaps
+        // last (outer layer). One shared window made custom flaps z-fight and
+        // cover the face flap "from outside".
+        ...(wall === "left" || wall === "right" ? PHASE_INNER : PHASE_OUTER),
       });
       panel.parentEdge = edge;
       panel.parentOffset = (parent.w - width) / 2;
@@ -562,6 +569,84 @@ function applyCustomFlaps(root: PanelNode, dims: BoxDimensions): PanelNode {
       parent.children.push(panel);
     }
   }
+  return root;
+}
+
+/**
+ * Clips a simple polygon to the horizontal band [yMin, yMax] (Sutherland–Hodgman
+ * against two parallel lines). Used to split an over-deep flap into its body and
+ * its tongue at the crease.
+ */
+function clipOutlineBand(pts: Point[], yMin: number, yMax: number): Point[] {
+  const clip = (input: Point[], keep: (y: number) => boolean, edgeY: number): Point[] => {
+    const out: Point[] = [];
+    for (let i = 0; i < input.length; i++) {
+      const a = input[i];
+      const b = input[(i + 1) % input.length];
+      const aIn = keep(a[1]);
+      const bIn = keep(b[1]);
+      if (aIn) out.push(a);
+      if (aIn !== bIn) {
+        const t = (edgeY - a[1]) / (b[1] - a[1]);
+        out.push([a[0] + (b[0] - a[0]) * t, edgeY]);
+      }
+    }
+    return out;
+  };
+  let out = pts;
+  out = clip(out, (y) => y >= yMin, yMin);
+  out = clip(out, (y) => y <= yMax, yMax);
+  return out;
+}
+
+/**
+ * A closing flap deeper than the opening it covers cannot lie flat at full fold —
+ * physically its excess (the "tongue") bends down INTO the box along the inside of
+ * the opposite wall. Split that tongue off at the far edge of the opening: the
+ * dieline gains the real crease line, and the 3D fold tucks the tongue inward at
+ * the end of the closure instead of letting it stick out past the box ("the tongue
+ * must go inside the box, not close from outside").
+ */
+function tuckOvershootingFlaps(root: PanelNode, dims: BoxDimensions): PanelNode {
+  // Reach from a wall's top/bottom edge to the opposite edge of the opening.
+  const reach: Partial<Record<FaceRole, number>> = { front: dims.width, back: dims.width, left: dims.length, right: dims.length };
+  const visit = (node: PanelNode) => {
+    for (const child of node.children) visit(child);
+    node.children = node.children.map((child) => {
+      const span = reach[node.face as keyof typeof reach];
+      if (!span || (child.parentEdge !== "top" && child.parentEdge !== "bottom")) return child;
+      if (child.h <= span + 0.05 || child.children.length > 0) return child;
+      const edge = child.parentEdge;
+      const outline = child.outline ?? rect(child.w, child.h);
+      const bodyPts = clipOutlineBand(outline, 0, span);
+      const tonguePts = clipOutlineBand(outline, span, child.h).map(([x, y]): Point => [x, y - span]);
+      if (bodyPts.length < 3 || tonguePts.length < 3) return child;
+      const s = child.foldStart ?? 0;
+      const e = child.foldEnd ?? 1;
+      const tongue: PanelNode = {
+        ...makePanel({
+          name: `${child.name} (Tongue)`,
+          face: child.face,
+          w: child.w,
+          h: child.h - span,
+          outline: tonguePts,
+          // Same winding as the flap itself: the tongue bends the same way the
+          // flap folded, continuing down INTO the box instead of back outside.
+          foldAngle: edge === "top" ? TOP_FOLD : BOTTOM_FOLD,
+          foldStart: s + 0.7 * (e - s),
+          foldEnd: e,
+        }),
+        parentEdge: "top",
+        parentOffset: 0,
+        parentId: child.id,
+      };
+      child.h = span;
+      child.outline = bodyPts;
+      child.children.push(tongue);
+      return child;
+    });
+  };
+  visit(root);
   return root;
 }
 
@@ -589,7 +674,10 @@ export function getBoxStyle(id: BoxStyleId): BoxStyleDefinition {
     build: (dims) => {
       const sized = compensateForMaterial(dims);
       // Ids are made structural before the hand edits run, because those edits name faces by id.
-      return applyPanelEdits(assignStableIds(applyCustomFlaps(found.build(sized), sized)), sized.panelEdits);
+      const edited = applyPanelEdits(assignStableIds(applyCustomFlaps(found.build(sized), sized)), sized.panelEdits);
+      // Last pass: any closing flap deeper than its opening gets its tongue split
+      // off so it tucks down INTO the box instead of sticking out past the far edge.
+      return tuckOvershootingFlaps(edited, sized);
     },
   };
 }
