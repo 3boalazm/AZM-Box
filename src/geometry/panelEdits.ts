@@ -24,6 +24,40 @@ const FOLD_ANGLE: Record<HingeEdge, number> = { top: -Math.PI / 2, bottom: Math.
 
 export const FACE_EDGES: HingeEdge[] = ["top", "right", "bottom", "left"];
 
+/**
+ * Fold window for a face added on `edge` of `host`, following the template
+ * builders' own closing order: side-wall flaps close FIRST (they end up as the
+ * INNER layers of the closure, tucked under), front/back "face" flaps close LAST
+ * (the outermost layer that covers everything), and glue-panel lock flaps land
+ * between. Left/right hinges (seam tabs and wall extensions) move with the tube.
+ * A face chained onto another flap folds after its parent settles, so tongues
+ * tuck in at the very end instead of racing their parent.
+ *
+ * The stacking inset in Fold3D derives its layer from foldStart, so distinct
+ * windows also fix the physical layering: flaps that used to share one window
+ * z-fought and drew over the face flap "from outside".
+ */
+export function addedFacePhase(host: PanelNode, edge: HingeEdge): { foldStart: number; foldEnd: number } {
+  if (edge === "left" || edge === "right") return { foldStart: 0, foldEnd: 0.4 };
+  switch (host.face) {
+    case "left":
+    case "right":
+      return { foldStart: 0.4, foldEnd: 0.7 };
+    case "front":
+    case "back":
+      return { foldStart: 0.7, foldEnd: 1 };
+    case "glue":
+      return { foldStart: 0.55, foldEnd: 0.8 };
+    default: {
+      const pStart = host.foldStart ?? 0;
+      const pEnd = host.foldEnd ?? 1;
+      const span = Math.max(0.15, pEnd - pStart);
+      const start = Math.min(pEnd, 0.8);
+      return { foldStart: start, foldEnd: Math.min(1, start + Math.max(0.2, span)) };
+    }
+  }
+}
+
 /** Gives every face an id that depends only on where it sits in the tree. */
 export function assignStableIds(root: PanelNode): PanelNode {
   const visit = (node: PanelNode, parent?: PanelNode) => {
@@ -46,17 +80,31 @@ export function assignStableIds(root: PanelNode): PanelNode {
 
 interface Located { node: PanelNode; mirrored: boolean }
 
-function childMirrored(parentMirrored: boolean, edge: HingeEdge | undefined): boolean {
-  if (edge === "bottom") return !parentMirrored;
-  if (edge === "top") return parentMirrored;
-  return false;
+/**
+ * Whether a panel's local frame is flipped relative to its parent's — i.e. its
+ * local +Z (the printed/outside side) ends up facing INTO the box instead of
+ * out of it. Children of a flipped panel must fold the opposite way to still
+ * close inward over the opening (the same effect as the card-deck lock flaps,
+ * whose signs are negated by hand in boxBuilders.ts).
+ *
+ * Two things flip a frame:
+ *  - hinges that start pre-rotated 180° in computeHinge (bottom, left), and
+ *  - folds that rotate a half turn (|foldAngle| = PI, e.g. the glue tab tuck).
+ * Ignoring the left/right case is what made faces chained off a side tab or the
+ * glue panel swing OUTSIDE the box instead of tucking in.
+ */
+function childMirrored(parentMirrored: boolean, edge: HingeEdge | undefined, foldAngle?: number): boolean {
+  let flipped = parentMirrored;
+  if (edge === "bottom" || edge === "left") flipped = !flipped;
+  if (foldAngle !== undefined && Math.abs(Math.abs(foldAngle) - Math.PI) < 1e-6) flipped = !flipped;
+  return flipped;
 }
 
 function locate(root: PanelNode): Map<string, Located> {
   const found = new Map<string, Located>();
   const visit = (node: PanelNode, mirrored: boolean) => {
     found.set(node.id, { node, mirrored });
-    for (const child of node.children) visit(child, childMirrored(mirrored, child.parentEdge));
+    for (const child of node.children) visit(child, childMirrored(mirrored, child.parentEdge, child.foldAngle));
   };
   visit(root, false);
   return found;
@@ -79,10 +127,11 @@ const edgeLength = (node: PanelNode, edge: HingeEdge) => (edge === "top" || edge
 function buildAddedFace(face: AddedFace, parent: PanelNode, index: number, parentMirrored: boolean): PanelNode {
   const span = edgeLength(parent, face.edge);
   const horizontal = face.edge === "top" || face.edge === "bottom";
-  // A mirrored (bottom-attached) parent's local frame is y-flipped, which reverses
-  // the sense of every fold about it — negate so the new face still closes INWARD
-  // over the box instead of swinging outside (same mirror effect as GLUE_TUCK).
+  // A mirrored (flipped-frame) parent reverses the sense of every fold about it —
+  // negate so the new face still closes INWARD over the box instead of swinging
+  // outside (same mirror effect as GLUE_TUCK).
   const base = FOLD_ANGLE[face.edge];
+  const phase = addedFacePhase(parent, face.edge);
   return {
     id: face.id,
     name: `Extra face ${index + 1}`,
@@ -92,8 +141,8 @@ function buildAddedFace(face: AddedFace, parent: PanelNode, index: number, paren
     parentOffset: 0,
     parentId: parent.id,
     foldAngle: parentMirrored ? -base : base,
-    foldStart: 0.7,
-    foldEnd: 1,
+    foldStart: phase.foldStart,
+    foldEnd: phase.foldEnd,
     hinged: true,
     face: "extra",
     children: [],
@@ -161,7 +210,7 @@ export function applyPanelEdits(root: PanelNode, edits?: PanelEdits): PanelNode 
     if (!parent || located.has(face.id) || !canHost(parent, face.edge)) return;
     const node = buildAddedFace(face, parent.node, index, parent.mirrored);
     parent.node.children.push(node);
-    located.set(node.id, { node, mirrored: childMirrored(parent.mirrored, face.edge) });
+    located.set(node.id, { node, mirrored: childMirrored(parent.mirrored, face.edge, node.foldAngle) });
   });
 
   return base;
