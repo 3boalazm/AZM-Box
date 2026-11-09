@@ -32,6 +32,14 @@ const GLUE_INSET_MM = 0.25;
 const FLAP_STACK_MM = 0.3;
 
 function flapStackInset(node: PanelNode): number {
+  // A tongue is NOT one of the layers closing over the opening — it stands
+  // perpendicular to its own flap, against the inside of the far wall. Stacking
+  // it pushes it along its own normal, which for a tongue points straight through
+  // that wall: the crease end ended up OUTSIDE the box and showed through the
+  // face. Whether it came out in front or behind depended only on which way the
+  // tongue happened to face, which is why the bottom one looked right and the top
+  // one did not. Its inward lean already settles which side it is on.
+  if (node.tucked) return 0;
   if (node.parentEdge === "top" || node.parentEdge === "bottom") {
     const layer = Math.max(0, Math.min(1, node.foldStart ?? 0));
     return (node.parentEdge === "top" ? 1 : -1) * FLAP_STACK_MM * layer;

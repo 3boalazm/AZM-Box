@@ -24,6 +24,24 @@ function check(label: string, ok: boolean, detail = "") {
   console.log(`  ${ok ? "OK  " : "FAIL"}  ${label}${detail ? `  (${detail})` : ""}`);
 }
 
+/**
+ * Fold3D nudges each flap along its own normal so stacked layers do not z-fight.
+ * The replay has to apply it too: without it this test measured a box the
+ * renderer never draws, and passed a tongue whose crease end was being pushed out
+ * through the face it was supposed to hide behind.
+ */
+const FLAP_STACK_MM = 0.3;
+const GLUE_INSET_MM = 0.25;
+function stackInset(n: PanelNode): number {
+  if (n.tucked) return 0;
+  if (n.parentEdge === "top" || n.parentEdge === "bottom") {
+    const layer = Math.max(0, Math.min(1, n.foldStart ?? 0));
+    return (n.parentEdge === "top" ? 1 : -1) * FLAP_STACK_MM * layer;
+  }
+  if (n.face === "glue" && (n.parentEdge === "left" || n.parentEdge === "right")) return GLUE_INSET_MM;
+  return 0;
+}
+
 function hinge(n: PanelNode, pw: number, ph: number) {
   const o = n.parentOffset ?? 0;
   switch (n.parentEdge) {
@@ -35,7 +53,7 @@ function hinge(n: PanelNode, pw: number, ph: number) {
   }
 }
 
-interface Tip { id: string; name: string; face: string; pos: THREE.Vector3; corners: THREE.Vector3[] }
+interface Tip { id: string; name: string; face: string; pos: THREE.Vector3; corners: THREE.Vector3[]; normal: THREE.Vector3 }
 
 /** Tip (far edge midpoint) and outline corners of every panel at full fold. */
 function tipsAtClose(root: PanelNode): Tip[] {
@@ -47,23 +65,27 @@ function tipsAtClose(root: PanelNode): Tip[] {
     const a = h.b + (n.foldAngle ?? 0);
     if (h.ax === "x") g.rotation.set(a, 0, 0); else g.rotation.set(0, a, 0);
     parent.add(g);
-    g.updateWorldMatrix(true, false);
+    const inner = new THREE.Group();
+    inner.position.set(0, 0, stackInset(n));
+    g.add(inner);
+    inner.updateWorldMatrix(true, false);
     const pts = n.outline ?? rect(n.w, n.h);
     const midX = (Math.min(...pts.map((p) => p[0])) + Math.max(...pts.map((p) => p[0]))) / 2;
     const maxY = Math.max(...pts.map((p) => p[1]));
     const t = new THREE.Object3D();
     t.position.set(midX, maxY, 0);
-    g.add(t);
+    inner.add(t);
     t.updateWorldMatrix(true, false);
     const corners = pts.map(([x, y]) => {
       const c = new THREE.Object3D();
       c.position.set(x, y, 0);
-      g.add(c);
+      inner.add(c);
       c.updateWorldMatrix(true, false);
       return new THREE.Vector3().setFromMatrixPosition(c.matrixWorld);
     });
-    out.push({ id: n.id, name: n.name, face: String(n.face), pos: new THREE.Vector3().setFromMatrixPosition(t.matrixWorld), corners });
-    for (const k of n.children ?? []) walk(k, n.w, n.h, g);
+    const normal = new THREE.Vector3(0, 0, 1).transformDirection(inner.matrixWorld);
+    out.push({ id: n.id, name: n.name, face: String(n.face), pos: new THREE.Vector3().setFromMatrixPosition(t.matrixWorld), corners, normal });
+    for (const k of n.children ?? []) walk(k, n.w, n.h, inner);
   };
   walk(root, 0, 0, new THREE.Group());
   return out;
@@ -179,12 +201,22 @@ function overDeep(label: string, styleId: string, extraDims: Record<string, unkn
   // the wall it folds against: coplanar is what let it render on the outside of a
   // closed box.
   const margin = 0.2;
+  // Every CORNER, not just the tip: the crease end is what was being pushed out
+  // through the face, while the free end sat correctly inside.
   const tongues = target.filter((t) => t.name.includes("Tongue"));
-  const flush = tongues.filter((t) =>
-    t.pos.x < box.min.x + margin || t.pos.x > box.max.x - margin ||
-    t.pos.y < box.min.y + margin || t.pos.y > box.max.y - margin ||
-    t.pos.z < box.min.z + margin || t.pos.z > box.max.z - margin);
-  for (const t of flush) console.log(`        ${t.name} tip (${t.pos.x.toFixed(2)},${t.pos.y.toFixed(2)},${t.pos.z.toFixed(2)}) is flush with the shell, not behind it`);
+  // Only along the axis the tongue lies against — the wall it has to hide behind.
+  // Across the other two it hugs the crease, where dipping a fraction past the
+  // box's own rim is just the lean and says nothing about which side it is on.
+  const flush: Tip[] = [];
+  for (const t of tongues) {
+    const n = t.normal;
+    const axis: "x" | "y" | "z" = Math.abs(n.x) >= Math.abs(n.y) && Math.abs(n.x) >= Math.abs(n.z) ? "x" : Math.abs(n.y) >= Math.abs(n.z) ? "y" : "z";
+    const bad = t.corners.filter((p) => p[axis] < box.min[axis] - margin || p[axis] > box.max[axis] + margin);
+    if (bad.length === 0) continue;
+    flush.push(t);
+    const w = bad[0];
+    console.log(`        ${t.name}: ${bad.length}/${t.corners.length} corners out through the wall on ${axis}, e.g. ${axis}=${w[axis].toFixed(2)} vs [${box.min[axis].toFixed(2)}..${box.max[axis].toFixed(2)}]`);
+  }
   check(label, out.length === 0 && flush.length === 0, `${target.length} panel(s) from the split, ${tongues.length} tongue(s) tucked behind the wall`);
 }
 
@@ -199,6 +231,20 @@ overDeep("over-deep flap on a hand-added wall", "reverse-tuck-end", {
   panelEdits: { removed: [], added: [
     { id: "extra-a", parentId: "front", edge: "left", depth: 70 },
     { id: "extra-deep", parentId: "extra-a", edge: "top", depth: 160 },
+  ] },
+}, "Extra face 2");
+
+// The top closure of the real project: a face added on the BACK wall's top edge,
+// 80 mm deep over a 70 mm opening. Its tongue faces the other way from the bottom
+// one, which is exactly why the bottom of the box looked right while the top kept
+// showing the tongue through the front face.
+overDeep("deep top closure, your project", "reverse-tuck-end", {
+  length: 135, width: 70, height: 95, endFlapRight: 15,
+  flapEdges: { bottom: { back: 80 } },
+  panelEdits: { removed: ["front/right:left/right:back/right:right", "front/top:flap-top-front"], added: [
+    { id: "extra-a", parentId: "front", edge: "left", depth: 70 },
+    { id: "extra-b", parentId: "front/right:left/right:back", edge: "top", depth: 80 },
+    { id: "extra-c", parentId: "extra-a", edge: "top", depth: 28 },
   ] },
 }, "Extra face 2");
 

@@ -18,6 +18,7 @@ interface MakeOpts {
   foldAngle?: number;
   hinged?: boolean;
   isInside?: boolean;
+  tucked?: boolean;
   foldStart?: number;
   foldEnd?: number;
 }
@@ -33,6 +34,7 @@ function makePanel(opts: MakeOpts): PanelNode {
     hinged: opts.hinged ?? true,
     face: opts.face,
     isInside: opts.isInside,
+    tucked: opts.tucked,
     foldStart: opts.foldStart,
     foldEnd: opts.foldEnd,
     children: [],
@@ -669,6 +671,7 @@ function tuckOvershootingFlaps(root: PanelNode, dims: BoxDimensions): PanelNode 
         ...makePanel({
           name: `${child.name} (Tongue)`,
           face: child.face,
+          tucked: true,
           w: child.w,
           h: child.h - span,
           outline: tonguePts,

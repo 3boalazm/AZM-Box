@@ -62,6 +62,12 @@ export interface PanelNode {
   face: FaceRole;
   /** True if this face is only visible on the INSIDE of the finished box. */
   isInside?: boolean;
+  /**
+   * Split off a closing flap that was deeper than its opening: the excess that
+   * bends past the crease and lies against the INSIDE of the far wall. Unlike a
+   * flap it does not lie over the opening, so it takes no part in the flap stack.
+   */
+  tucked?: boolean;
   parentId?: string;
   children: PanelNode[];
 }
