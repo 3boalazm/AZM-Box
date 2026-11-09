@@ -320,10 +320,12 @@ interface Fold3DProps {
   onSceneCaptureReady?: (capture: SceneCapture) => void;
   onSceneReady?: (group: THREE.Group) => void;
   onCanvasReady?: (canvas: HTMLCanvasElement) => void;
+  /** False while the 2D view is on top: the scene stays alive but stops rendering. */
+  active?: boolean;
   onSelectPanel?: (id: string) => void;
 }
 
-export default function Fold3D({ root, dims, layout, artwork, showDimensions, foldAmount, sceneSettings, onChangeSceneSettings, onSceneCaptureReady, onSceneReady, onCanvasReady, onSelectPanel }: Fold3DProps) {
+export default function Fold3D({ root, dims, layout, artwork, showDimensions, foldAmount, sceneSettings, onChangeSceneSettings, onSceneCaptureReady, onSceneReady, onCanvasReady, onSelectPanel, active = true }: Fold3DProps) {
   const texturesById = usePanelTextures(layout, artwork, 6, showDimensions);
   const groupRef = useRef<THREE.Group>(null);
   const controlsRef = useRef<StudioControls["current"]>(null);
@@ -417,12 +419,12 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
 
   return (
     <div className="fold3d-root">
-      <Canvas className="fold3d-canvas" dpr={[1, 2]} gl={{ preserveDrawingBuffer: true, antialias: true, alpha: true }} shadows={shadows} camera={{ position: [260, 220, 320], fov: 40, near: 1, far: 5000 }} onCreated={({ gl }) => onCanvasReady?.(gl.domElement)}>
+      <Canvas className="fold3d-canvas" frameloop={active ? "always" : "never"} dpr={[1, 1.5]} gl={{ preserveDrawingBuffer: true, antialias: true, alpha: true }} shadows={shadows ? { type: THREE.PCFShadowMap } : false} camera={{ position: [260, 220, 320], fov: 40, near: 1, far: 5000 }} onCreated={({ gl }) => onCanvasReady?.(gl.domElement)}>
         {!sceneSettings.transparentBackground && <color attach="background" args={[background]} />}
         <ambientLight intensity={ambient * environmentScale} />
         {(["key", "fill", "rim"] as const).map((name) => {
           const light = lights[name];
-          return light.enabled ? <directionalLight key={name} position={light.position} color={light.color} intensity={light.intensity * (name === "key" ? sceneSettings.keyLight : 1) * environmentScale} castShadow={shadows && name === "key"} shadow-mapSize-width={2048} shadow-mapSize-height={2048} shadow-bias={-0.0004} shadow-normalBias={0.6} shadow-camera-left={-shadowReach} shadow-camera-right={shadowReach} shadow-camera-top={shadowReach} shadow-camera-bottom={-shadowReach} shadow-camera-near={1} shadow-camera-far={shadowReach * 6} /> : null;
+          return light.enabled ? <directionalLight key={name} position={light.position} color={light.color} intensity={light.intensity * (name === "key" ? sceneSettings.keyLight : 1) * environmentScale} castShadow={shadows && name === "key"} shadow-mapSize-width={1024} shadow-mapSize-height={1024} shadow-bias={-0.0004} shadow-normalBias={0.6} shadow-camera-left={-shadowReach} shadow-camera-right={shadowReach} shadow-camera-top={shadowReach} shadow-camera-bottom={-shadowReach} shadow-camera-near={1} shadow-camera-far={shadowReach * 6} /> : null;
         })}
         {floor.visible && <mesh rotation={[-Math.PI / 2, 0, 0]} position={[dims.length / 2, -2, -dims.width / 2]} receiveShadow>
           <planeGeometry args={[floor.size, floor.size]} />

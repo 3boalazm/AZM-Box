@@ -27,7 +27,18 @@ export function usePanelTextures(layout: DielineLayout, artwork: ArtworkState, p
       const insideSheet = await buildSheetCanvas(artwork.inside, layout, pxPerMm);
       const map = new Map<string, PanelTextures>();
 
+      // Rasterising every panel in one go blocked the main thread for most of a
+      // second, which is what made a layer toggle or a tab switch feel like the
+      // app had seized. The total work is the same, but yielding between panels
+      // turns one long task into a dozen short ones, so the UI keeps responding
+      // and the browser can paint in between.
+      let since = performance.now();
       for (const panel of layout.panels) {
+        if (performance.now() - since > 16) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          if (cancelled) break;
+          since = performance.now();
+        }
         const label = showDimensions ? `${panel.w.toFixed(0)} × ${panel.h.toFixed(0)}` : undefined;
         const outCanvas = await renderPanelCanvas(panel, artwork.outside, layout, outsideSheet, pxPerMm, label);
         const inCanvas = await renderPanelCanvas(panel, artwork.inside, layout, insideSheet, pxPerMm);

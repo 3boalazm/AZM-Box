@@ -559,8 +559,13 @@ export default function App() {
 
         <main className="stage" id="workspace-canvas" role="tabpanel" tabIndex={0} aria-labelledby={activeTab === "2d" ? "view-2d" : "view-3d"} onDragEnter={handleStageDragEnter} onDragOver={handleStageDragOver} onDragLeave={handleStageDragLeave} onDrop={handleStageDrop}>
           {fileDragActive && <div className="drop-overlay" aria-hidden="true"><Icon name="image"/><strong>{t("Drop to place artwork")}</strong><span>{t("on the {side} sheet", { side: t(activeSide) })}</span></div>}
-          {activeTab === "2d" ? (
-            <div className="stage-scroll">
+          {/* Both views stay mounted and the inactive one is hidden. Swapping them
+              with a ternary tore down the WebGL context and every panel texture on
+              each tab switch, then rebuilt the lot on the way back — the single
+              most expensive thing the app did, for a button press that changes
+              nothing about the model. The 3D frame loop is parked while hidden so
+              an off-screen canvas costs nothing. */}
+          <div className="stage-scroll" style={{ display: activeTab === "2d" ? undefined : "none" }}>
               <Suspense fallback={<div className="stage-loading">Loading 2D editor…</div>}>
               <DielineEditor
                 layout={layout}
@@ -590,11 +595,10 @@ export default function App() {
                 onRemoveFace={handleRemoveFace}
               />
               </Suspense>
-            </div>
-          ) : (
-            <div className="stage-3d">
+          </div>
+          <div className="stage-3d" style={{ display: activeTab === "3d" ? undefined : "none" }}>
               <Suspense fallback={<div className="stage-loading">Loading 3D studio…</div>}>
-                <Fold3D root={root} dims={dims} layout={layout} artwork={displayedArtwork} showDimensions={showDimensions} foldAmount={foldAmount} sceneSettings={sceneSettings} onChangeSceneSettings={setSceneSettings} onSceneCaptureReady={(capture) => (sceneCaptureRef.current = capture)} onSceneReady={(g) => (sceneRef.current = g)} onCanvasReady={(canvas) => (sceneCanvasRef.current = canvas)} onSelectPanel={handleStudioSelectPanel} />
+                <Fold3D active={activeTab === "3d"} root={root} dims={dims} layout={layout} artwork={displayedArtwork} showDimensions={showDimensions} foldAmount={foldAmount} sceneSettings={sceneSettings} onChangeSceneSettings={setSceneSettings} onSceneCaptureReady={(capture) => (sceneCaptureRef.current = capture)} onSceneReady={(g) => (sceneRef.current = g)} onCanvasReady={(canvas) => (sceneCanvasRef.current = canvas)} onSelectPanel={handleStudioSelectPanel} />
               </Suspense>
               <div className="fold-slider" aria-label="3D box folding controls">
                 <div className="fold-progress">
@@ -626,8 +630,7 @@ export default function App() {
                   Measurements
                 </label>
               </div>
-            </div>
-          )}
+          </div>
         </main>
 
         {activeTab === "2d" ? <ArtworkPanel
