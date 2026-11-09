@@ -607,13 +607,42 @@ function clipOutlineBand(pts: Point[], yMin: number, yMax: number): Point[] {
  * the end of the closure instead of letting it stick out past the box ("the tongue
  * must go inside the box, not close from outside").
  */
+/** Depth-first lookup by panel id. */
+function findById(root: PanelNode, id: string): PanelNode | undefined {
+  if (root.id === id) return root;
+  for (const child of root.children ?? []) {
+    const hit = findById(child, id);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
 function tuckOvershootingFlaps(root: PanelNode, dims: BoxDimensions): PanelNode {
-  // Reach from a wall's top/bottom edge to the opposite edge of the opening.
-  const reach: Partial<Record<FaceRole, number>> = { front: dims.width, back: dims.width, left: dims.length, right: dims.length };
+  // Reach from a piece's top/bottom edge to the opposite edge of the opening it
+  // closes over. The four tube walls are known outright; a face the user added by
+  // hand stands in for whichever wall it replaces, so it takes that wall's reach:
+  // added on a left/right edge it spans the box the other way round from its host,
+  // added on a top/bottom edge it is a lid or a base and reaches down the height.
+  // Without this an added face returned no span at all and its flap was never
+  // split, so an over-deep flap on a hand-added wall kept sticking out of the box.
+  const reachOf = (node: PanelNode): number | undefined => {
+    switch (node.face) {
+      case "front": case "back": return dims.width;
+      case "left": case "right": return dims.length;
+      default: break;
+    }
+    if (node.face !== "extra" && node.face !== "glue") return undefined;
+    const host = node.parentId ? findById(root, node.parentId) : undefined;
+    if (!host) return undefined;
+    if (node.parentEdge === "top" || node.parentEdge === "bottom") return dims.height;
+    const hostReach = reachOf(host);
+    if (hostReach === undefined) return undefined;
+    return hostReach === dims.width ? dims.length : dims.width;
+  };
   const visit = (node: PanelNode) => {
     for (const child of node.children) visit(child);
     node.children = node.children.map((child) => {
-      const span = reach[node.face as keyof typeof reach];
+      const span = reachOf(node);
       if (!span || (child.parentEdge !== "top" && child.parentEdge !== "bottom")) return child;
       if (child.h <= span + 0.05 || child.children.length > 0) return child;
       const edge = child.parentEdge;
@@ -632,7 +661,11 @@ function tuckOvershootingFlaps(root: PanelNode, dims: BoxDimensions): PanelNode 
           outline: tonguePts,
           // Same winding as the flap itself: the tongue bends the same way the
           // flap folded, continuing down INTO the box instead of back outside.
-          foldAngle: edge === "top" ? TOP_FOLD : BOTTOM_FOLD,
+          // Which way that is depends on the flap's own frame, not on the edge
+          // alone — a flap whose chain is drawn back-to-front in the sheet has a
+          // reversed local frame, and a fixed TOP_FOLD/BOTTOM_FOLD would bend its
+          // tongue back out of the box. Follow the flap's own fold sign instead.
+          foldAngle: Math.sign(child.foldAngle || 1) * Math.abs(edge === "top" ? TOP_FOLD : BOTTOM_FOLD),
           foldStart: s + 0.7 * (e - s),
           foldEnd: e,
         }),
