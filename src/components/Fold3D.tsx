@@ -5,6 +5,9 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import type { BoxDimensions, DielineLayout, PanelNode } from "../geometry/types";
 import { rect } from "../geometry/shapes";
 import { childPrintMirrored } from "../geometry/printSide";
+import { PRODUCT_SHOTS, cameraPoseForShot } from "../project/scenePresets";
+import type { ShotFraming } from "../project/scenePresets";
+import { getPreferences, scenePresetFrom, setPreferences, usePreferences } from "../lib/preferences";
 import type { PanelTextures } from "../artwork/usePanelTextures";
 import { usePanelTextures } from "../artwork/usePanelTextures";
 import type { ArtworkState } from "../artwork/types";
@@ -343,6 +346,32 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
   const environmentScale = sceneSettings.environment === "soft" ? 0.82 : sceneSettings.environment === "neutral" ? 0.95 : 1;
   const mouseButtons = useMemo(() => getCameraMouseButtons(navigation, spacePan), [navigation, spacePan]);
   const updateScene = (patch: Partial<SceneSettings>) => onChangeSceneSettings((current) => ({ ...current, ...patch }));
+  const { scenePresets } = usePreferences();
+
+  // A shot is framed from the box's own size, so the same set keeps every
+  // product the same size on the page. See scenePresets.ts.
+  const boxBounds = useMemo(() => ({
+    min: [0, 0, -dims.width] as [number, number, number],
+    max: [dims.length, dims.height, 0] as [number, number, number],
+  }), [dims.length, dims.height, dims.width]);
+
+  const applyShot = (shot: ShotFraming) => updateScene({ fov: shot.fov, cameraPose: cameraPoseForShot(shot, boxBounds) });
+
+  const applyScenePreset = (name: string) => {
+    const saved = getPreferences().scenePresets[name];
+    if (!saved) return;
+    onChangeSceneSettings((current) => ({ ...current, ...saved.look }));
+  };
+
+  const saveScenePreset = () => {
+    const name = window.prompt("Save this look and shot set as")?.trim();
+    if (!name) return;
+    onChangeSceneSettings((current) => {
+      const prefs = getPreferences();
+      setPreferences({ scenePresets: { ...prefs.scenePresets, [name]: scenePresetFrom(name, current) } });
+      return current;
+    });
+  };
   const reportCameraChange = useCallback((event?: { target?: unknown }) => {
     const controls = event?.target as { object?: THREE.Camera; target?: THREE.Vector3 } | null;
     if (!controls?.object || !controls.target) return;
@@ -460,6 +489,16 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
           <header><strong>3D Studio</strong><button type="button" className="icon-btn" onClick={() => setStudioOpen(false)} aria-label="Close studio controls"><Icon name="close"/></button></header>
           <div className="studio-section"><span className="studio-label">Camera angle</span><div className="studio-angle-grid">
             {presets.map((item) => <button key={item.id} type="button" className={preset === item.id ? "selected" : ""} onClick={() => applyPreset(item.id)}>{item.label}</button>)}
+          </div></div>
+          <div className="studio-section"><span className="studio-label">Product shots</span><div className="studio-angle-grid">
+            {PRODUCT_SHOTS.map((shot) => <button key={shot.id} type="button" title={`${shot.azimuth}° around, ${shot.elevation}° up, ${Math.round(shot.fill * 100)}% of frame`} onClick={() => applyShot(shot)}>{shot.label}</button>)}
+          </div>
+          <div className="studio-preset-row">
+            <select aria-label="Saved scene presets" value="" onChange={(event) => { if (event.target.value) applyScenePreset(event.target.value); }}>
+              <option value="">Saved looks…</option>
+              {Object.keys(scenePresets).map((name) => <option key={name} value={name}>{name}</option>)}
+            </select>
+            <button type="button" onClick={saveScenePreset}>Save current</button>
           </div></div>
           <div className="studio-section"><span className="studio-label">Background</span><div className="studio-backgrounds">
             {["#e9e6df", "#f5f3ed", "#ffffff", "#dce4ec", "#23252b"].map((color) => <button key={color} type="button" aria-label={`Background ${color}`} title={color} className={background === color ? "selected" : ""} style={{ background: color }} onClick={() => updateScene({ background: color })} />)}

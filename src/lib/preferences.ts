@@ -1,4 +1,8 @@
 import { useSyncExternalStore } from "react";
+import { normalizeSceneSettings } from "../project/sceneSettings";
+import type { SceneSettings } from "../project/sceneSettings";
+import { PRODUCT_SHOTS } from "../project/scenePresets";
+import type { SceneLook, ScenePreset, ShotFraming } from "../project/scenePresets";
 
 export type Unit = "mm" | "cm" | "in";
 export type Language = "en" | "ar";
@@ -56,6 +60,12 @@ export interface Preferences {
   language: Language;
   exportSettings: ExportSettings;
   exportPresets: Record<string, ExportSettings>;
+  /**
+   * Named sets of product shots. Kept in preferences rather than in a project
+   * because the point of a shot set is to outlive any one box: you build it once
+   * and replay it on the next product so the range photographs as a family.
+   */
+  scenePresets: Record<string, ScenePreset>;
 }
 
 const KEY = "azm-box:preferences";
@@ -80,12 +90,49 @@ export function sanitizeExportSettings(raw: unknown): ExportSettings {
   };
 }
 
+export function sanitizeScenePreset(raw: unknown, fallbackName: string): ScenePreset {
+  const r = (typeof raw === "object" && raw !== null ? raw : {}) as Partial<ScenePreset>;
+  const shots: ShotFraming[] = [];
+  if (Array.isArray(r.shots)) {
+    for (const value of r.shots.slice(0, 24)) {
+      const sh = (typeof value === "object" && value !== null ? value : {}) as Partial<ShotFraming>;
+      if (typeof sh.id !== "string" || !sh.id) continue;
+      shots.push({
+        id: sh.id.slice(0, 40),
+        label: typeof sh.label === "string" && sh.label ? sh.label.slice(0, 40) : sh.id.slice(0, 40),
+        azimuth: num(sh.azimuth, 0, -360, 360),
+        elevation: num(sh.elevation, 0, -89, 89),
+        fov: num(sh.fov, 32, 10, 100),
+        fill: num(sh.fill, 0.8, 0.05, 1),
+      });
+    }
+  }
+  return {
+    name: typeof r.name === "string" && r.name ? r.name.slice(0, 60) : fallbackName,
+    // The look is a scene, so it is validated by the scene's own normaliser
+    // rather than a second, drifting copy of those rules.
+    look: pickLook(normalizeSceneSettings(r.look)),
+    shots: shots.length ? shots : PRODUCT_SHOTS.map((shot) => ({ ...shot })),
+  };
+}
+
+function pickLook(scene: SceneSettings): SceneLook {
+  const { background, transparentBackground, environment, ambient, exposure, envLight, lights, floor, shadows, material, materialParams } = scene;
+  return { background, transparentBackground, environment, ambient, exposure, envLight, lights, floor, shadows, material, materialParams };
+}
+
+/** The look and shots currently in use, ready to be saved under a name. */
+export function scenePresetFrom(name: string, scene: SceneSettings, shots: ShotFraming[] = PRODUCT_SHOTS): ScenePreset {
+  return { name, look: pickLook(scene), shots: shots.map((shot) => ({ ...shot })) };
+}
+
 function load(): Preferences {
   const defaults: Preferences = {
     unit: "mm",
     language: typeof navigator !== "undefined" && navigator.language?.toLowerCase().startsWith("ar") ? "ar" : "en",
     exportSettings: { ...DEFAULT_EXPORT_SETTINGS },
     exportPresets: {},
+    scenePresets: {},
   };
   try {
     const raw = JSON.parse(window.localStorage.getItem(KEY) ?? "null");
@@ -94,11 +141,19 @@ function load(): Preferences {
     if (raw.exportPresets && typeof raw.exportPresets === "object") {
       for (const [name, value] of Object.entries(raw.exportPresets).slice(0, 30)) presets[name.slice(0, 60)] = sanitizeExportSettings(value);
     }
+    const scenes: Record<string, ScenePreset> = {};
+    if (raw.scenePresets && typeof raw.scenePresets === "object") {
+      for (const [name, value] of Object.entries(raw.scenePresets).slice(0, 30)) {
+        const key = name.slice(0, 60);
+        scenes[key] = sanitizeScenePreset(value, key);
+      }
+    }
     return {
       unit: raw.unit === "cm" || raw.unit === "in" ? raw.unit : "mm",
       language: raw.language === "ar" || raw.language === "en" ? raw.language : defaults.language,
       exportSettings: sanitizeExportSettings(raw.exportSettings),
       exportPresets: presets,
+      scenePresets: scenes,
     };
   } catch {
     return defaults;

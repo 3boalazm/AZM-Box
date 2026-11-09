@@ -536,3 +536,8 @@ html[dir="rtl"] .num-field input[type="number"],html[dir="rtl"] .field input[typ
 .flip-button { min-height: 32px; padding: 0 10px; color: var(--text); text-align: start; background: transparent; border: 1px solid var(--border); border-radius: 6px; font-size: 11px; cursor: pointer; }
 .flip-button:hover { background: var(--accent-wash); border-color: #e8cf9e; }
 .flip-button.active { color: var(--accent-strong); background: var(--accent-wash); border-color: #e8cf9e; font-weight: 600; }
+
+/* Saved looks sit under the shot buttons: pick one to apply, or bank the current one. */
+.studio-preset-row { display: flex; gap: 6px; margin-top: 6px; }
+.studio-preset-row select { flex: 1 1 auto; min-width: 0; }
+.studio-preset-row button { flex: 0 0 auto; }
