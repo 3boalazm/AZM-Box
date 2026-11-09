@@ -175,7 +175,17 @@ function overDeep(label: string, styleId: string, extraDims: Record<string, unkn
     t.pos.y < box.min.y - slack || t.pos.y > box.max.y + slack ||
     t.pos.z < box.min.z - slack || t.pos.z > box.max.z + slack);
   for (const t of out) console.log(`        ${t.name} tip (${t.pos.x.toFixed(0)},${t.pos.y.toFixed(0)},${t.pos.z.toFixed(0)}) sticks out of [${box.min.x.toFixed(0)}..${box.max.x.toFixed(0)}, ${box.min.y.toFixed(0)}..${box.max.y.toFixed(0)}, ${box.min.z.toFixed(0)}..${box.max.z.toFixed(0)}]`);
-  check(label, out.length === 0, `${target.length} panel(s) from the split`);
+  // The tongue must end up strictly INSIDE the shell, not sitting in the plane of
+  // the wall it folds against: coplanar is what let it render on the outside of a
+  // closed box.
+  const margin = 0.2;
+  const tongues = target.filter((t) => t.name.includes("Tongue"));
+  const flush = tongues.filter((t) =>
+    t.pos.x < box.min.x + margin || t.pos.x > box.max.x - margin ||
+    t.pos.y < box.min.y + margin || t.pos.y > box.max.y - margin ||
+    t.pos.z < box.min.z + margin || t.pos.z > box.max.z - margin);
+  for (const t of flush) console.log(`        ${t.name} tip (${t.pos.x.toFixed(2)},${t.pos.y.toFixed(2)},${t.pos.z.toFixed(2)}) is flush with the shell, not behind it`);
+  check(label, out.length === 0 && flush.length === 0, `${target.length} panel(s) from the split, ${tongues.length} tongue(s) tucked behind the wall`);
 }
 
 // Your box: a bottom flap 80 mm deep on a box only 70 mm deep.

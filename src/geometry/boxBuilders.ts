@@ -607,6 +607,19 @@ function clipOutlineBand(pts: Point[], yMin: number, yMax: number): Point[] {
  * the end of the closure instead of letting it stick out past the box ("the tongue
  * must go inside the box, not close from outside").
  */
+/**
+ * Extra lean, in radians, that carries a tongue past the wall it folds against
+ * instead of leaving it coplanar with it. Just enough for the tongue's free end
+ * to clear the wall by one board caliper (a fraction of a millimetre when no
+ * caliper is set), so it works out to a degree or two on a typical tongue and
+ * stays proportionate on a long one.
+ */
+function tuckLean(tongueLength: number, caliper: number): number {
+  if (!(tongueLength > 0)) return 0;
+  const clearance = Math.max(caliper, 0.4);
+  return Math.atan2(clearance, tongueLength);
+}
+
 /** Depth-first lookup by panel id. */
 function findById(root: PanelNode, id: string): PanelNode | undefined {
   if (root.id === id) return root;
@@ -665,7 +678,16 @@ function tuckOvershootingFlaps(root: PanelNode, dims: BoxDimensions): PanelNode 
           // alone — a flap whose chain is drawn back-to-front in the sheet has a
           // reversed local frame, and a fixed TOP_FOLD/BOTTOM_FOLD would bend its
           // tongue back out of the box. Follow the flap's own fold sign instead.
-          foldAngle: Math.sign(child.foldAngle || 1) * Math.abs(edge === "top" ? TOP_FOLD : BOTTOM_FOLD),
+          //
+          // A quarter turn exactly lands the tongue IN the far wall's own plane,
+          // not behind it: coplanar with the wall, with nothing to say which of
+          // the two the viewer should see. The renderer then picks arbitrarily
+          // and the tongue shows up on the outside of a closed box. Real board
+          // cannot do that — the tongue passes the crease and lies against the
+          // INSIDE of that wall — so lean it in far enough to clear the wall by
+          // one caliper. With no caliper set there is no thickness to clear, so
+          // a hair of lean still settles which side it is on.
+          foldAngle: Math.sign(child.foldAngle || 1) * (Math.abs(edge === "top" ? TOP_FOLD : BOTTOM_FOLD) + tuckLean(child.h - span, dims.materialThickness ?? 0)),
           foldStart: s + 0.7 * (e - s),
           foldEnd: e,
         }),
