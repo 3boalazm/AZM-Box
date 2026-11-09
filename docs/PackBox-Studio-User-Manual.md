@@ -282,7 +282,11 @@ This is the fastest way to answer "which number do I change to make *this* bit b
 
 Clicking the same panel again replays the flash.
 
+**Double-clicking a panel** goes further: the sidebar opens the section that holds that panel's measurement (expanding collapsed sections on the way), scrolls the field into view, flashes it and focuses the input, so you can type a new value immediately. Front/back walls jump to **Length**, side walls to **Width**, top/bottom faces to **Height**, flaps to their wall's flap group, the glue tab to **Right glue tab**, and hand-added faces to the **Faces** card.
+
 > One exception: on the Card Deck Box (Lock Lid), the small **lock flaps** have no sidebar control of their own. Their depth deliberately follows the back wall's flap depth, so change **Back wall flap** to change them.
+
+**Adding and removing faces** works the same on every box style: turn on **Faces ±** in the canvas toolbar and every free edge of every rectangular face gets a blue **+** — walls, flaps (including the outer edge of a bottom flap), and glue tabs alike. Click **+** to attach a new face there; its depth is editable in the sidebar's **Faces** card, and the red **−** on a selected face removes it together with anything hinged beyond it.
 
 ## 4.8 The 2D editor
 
@@ -293,10 +297,15 @@ The toolbar at the top left of the canvas has **−**, a percentage readout, and
 - **−** and **+** step the zoom by 1.25× each click.
 - **Clicking the percentage** resets to 100 %.
 - **Scrolling the mouse wheel** zooms smoothly, and keeps whatever is under your cursor pinned in place — so you can point at a corner and zoom into it directly.
+- Adobe-style keyboard zoom, like Illustrator/Photoshop: **Ctrl/⌘ +** and **Ctrl/⌘ −** zoom in and out about the view centre, and **Ctrl/⌘ 0** fits the whole dieline into the view. **Ctrl/⌘ + scroll** zooms to the cursor as well.
 
 Zoom ranges from 1 % to 999 %.
 
+Every zoom step is anchored on the point under the cursor (or the view centre for the keyboard keys) and applied in the same frame, so the artwork stays put under your pointer — it never jumps or shakes while you zoom.
+
 ### Panning
+
+As in Adobe apps: hold **Space** and drag (the cursor becomes a hand), or drag with the **middle mouse button**, to pan the canvas.
 
 Two ways to move the canvas around:
 
@@ -335,7 +344,7 @@ Dragging anywhere inside the selection moves it.
 
 ### The image inspector
 
-Whenever a resizable image is selected — the full artwork sheet, or a logo layer — a small floating panel appears at the bottom right of the canvas with:
+A small floating panel at the bottom right of the canvas edits a resizable image — the full artwork sheet, or a logo layer — with:
 
 - a **Width** slider, in millimetres
 - a **Height** slider, in millimetres
@@ -343,7 +352,13 @@ Whenever a resizable image is selected — the full artwork sheet, or a logo lay
 - a **Straighten** button, which sets the angle back to 0°
 - a **Reset image** button, which returns the image to its original size and position
 
-Use the sliders when you want an exact number rather than a drag. Text layers have no independent width and height — resizing text scales its font size instead — so the inspector does not appear for them.
+Use the sliders when you want an exact number rather than a drag. Text layers have no independent width and height — resizing text scales its font size instead — so the inspector never targets them.
+
+The panel is **independent of the selection**: the **Size** button in the canvas toolbar shows or hides it, and its **×** only closes the panel — it does **not** deselect the artwork on the canvas. While an image is selected on the canvas the panel edits that image; otherwise it keeps editing the last image you selected (or the sheet artwork).
+
+### Mirroring a face's trace
+
+Some dies are cut from the mirrored side of the sheet, so one face — usually the back — appears mirrored in the die file. Select that face on the dieline (or in the scene tree) and tick **Mirror this face's trace** in the sidebar's **Faces** section. The face's cut outline and fold lines then flip horizontally about the face's own centre in the 2D drawing and in every export (SVG, PDF, DXF), which is what the mirrored die-cut looks like. A plain rectangular face is unchanged by the flip (a mirrored rectangle is the same rectangle), while asymmetric outlines — dust-flap corners, tuck slots, lock tabs — flip for real, and the face's fold lines swap sides. **Artwork placed on the face is never affected** — the artwork file does not need any editing. The flag is saved in the `.pbox` project, counts towards the *edited* faces badge, and **Restore the template faces** clears it.
 
 ## 4.9 Artwork
 
@@ -454,9 +469,15 @@ Your artwork is mapped onto the panels — the outside artwork on outward-facing
 
 The **Measurements** checkbox next to the slider prints each panel's width and height directly onto its face — a quick way to confirm the model matches the numbers you typed.
 
+The **glue tab** (the end flap that closes the tube) folds to the **inside** of the box at the seam, the way a real glued carton closes — so the outside of the finished box is clean, and the tab itself is visible when you look into the box. The small **lock flaps** that hang off the glue tab (Card Deck Box — Lock Lid) close over the top and bottom openings from the inside as well, instead of sticking out sideways.
+
+### Flap layers
+
+Real boxes stack their flaps: whatever closes **first** ends up **underneath**, and each later flap lies one board thickness further out, so the last flap you close is the one you see from outside. The 3D preview reproduces exactly that — every flap over the same opening is nudged one board-caliper step (0.3 mm) along its own face according to its closing order. You therefore never see the edges of inner flaps bleeding through the outer ones when the box is closed, at the top or the bottom; the closing order in the slider table above is also the physical stacking order.
+
 ## 4.13 Exporting
 
-The export buttons live at the right of the top bar. A **Print measurements** checkbox sits alongside them; when ticked, the dimension arrows are drawn into the exported SVG and PDF. Leave it off for production artwork — it is for checking and for printed mock-ups.
+The export buttons live at the end of the top bar (the right in English, the left in Arabic). A **Print measurements** checkbox sits alongside them; when ticked, the dimension arrows are drawn into the exported SVG and PDF. Leave it off for production artwork — it is for checking and for printed mock-ups. The **•••** menu opens a popover of further export options that always fits inside the window — on phones and in Arabic it anchors to the correct screen edge instead of running off-screen.
 
 ### Export SVG
 
@@ -485,6 +506,10 @@ A CAD file for a die maker or a cutting table, with cut lines on a layer named *
 Exports the folded 3D model, with your artwork baked in as textures, as a `.glb` file — the standard format for 3D on the web and in most 3D software.
 
 **This button only works while the 3D tab is open**, because it exports the live scene. It is greyed out on the 2D tab.
+
+### Scene images (PNG / JPG / PDF / transparent PNG)
+
+The **•••** menu also exports the current 3D view as a picture: **Scene image · PNG**, **· JPG**, **Scene PDF** (landscape A4) and **· PNG transparent** (alpha channel, for compositing). These are captured from the live scene, but re-rendered at **3× the on-screen resolution** (capped at a 4096 px edge) just for the export, so the files are noticeably sharper than the preview you see on screen — handy since your SVG artwork is vector and stays crisp at any size. The 2D exports (SVG and the dieline PDF) keep SVG artwork as true vector markup, never rasterised.
 
 ---
 

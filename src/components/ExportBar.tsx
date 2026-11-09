@@ -17,13 +17,19 @@ import { useT } from "../lib/i18n";
 
 interface Props {
   layout: DielineLayout;
+  /**
+   * Trace-mirrored copy of `layout` (applyTraceMirror) for faces flagged in
+   * panelEdits.mirrored. Cut/fold lines in SVG/PDF/DXF come from this layout;
+   * artwork is always built from the original `layout` and is never mirrored.
+   */
+  traceLayout?: DielineLayout;
   dims: BoxDimensions;
   styleDefaults: BoxDimensions;
   artwork: ArtworkState;
   title: string;
   sceneRef: React.MutableRefObject<THREE.Group | null>;
   sceneCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
-  transparentSceneExportRef: React.MutableRefObject<(() => Promise<Blob>) | null>;
+  sceneCaptureRef: React.MutableRefObject<import("./Fold3D").SceneCapture | null>;
   activeTab: "2d" | "3d";
   /** Lets 3D exports switch to the 3D Studio themselves instead of being disabled. */
   onRequestTab: (tab: "2d" | "3d") => void;
@@ -39,8 +45,10 @@ function forPrint(side: SideArtwork): SideArtwork {
   return { ...side, backgroundColor: "#ffffff" };
 }
 
-export default function ExportBar({ layout, dims, styleDefaults, artwork, title, sceneRef, sceneCanvasRef, transparentSceneExportRef, activeTab, onRequestTab }: Props) {
+export default function ExportBar({ layout, traceLayout, dims, styleDefaults, artwork, title, sceneRef, sceneCanvasRef, sceneCaptureRef, activeTab, onRequestTab }: Props) {
   const { notify } = useFeedback();
+  // Lines are drawn from the trace-mirrored layout; artwork keeps the original.
+  const lines = traceLayout ?? layout;
   const t = useT();
   const { exportSettings } = usePreferences();
   const [busy, setBusy] = useState<string | null>(null);
@@ -75,10 +83,10 @@ export default function ExportBar({ layout, dims, styleDefaults, artwork, title,
     if (activeTab === "3d") return;
     sceneRef.current = null;
     sceneCanvasRef.current = null;
-    transparentSceneExportRef.current = null;
+    sceneCaptureRef.current = null;
     onRequestTab("3d");
     const deadline = Date.now() + 10000;
-    while (!(sceneRef.current && sceneCanvasRef.current && transparentSceneExportRef.current)) {
+    while (!(sceneRef.current && sceneCanvasRef.current && sceneCaptureRef.current)) {
       if (Date.now() > deadline) throw new Error("The 3D studio took too long to load. Open the 3D tab and try again.");
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
@@ -97,7 +105,7 @@ export default function ExportBar({ layout, dims, styleDefaults, artwork, title,
   const exportSVG = () =>
     run("svg", async () => {
       const hasInside = sideHasContent(artwork.inside);
-      const outsideSvg = generateDielineSVG(layout, {
+      const outsideSvg = generateDielineSVG(lines, {
         ...(await artworkFor(artwork.outside)),
         title,
         trimGuide: true,
@@ -111,7 +119,7 @@ export default function ExportBar({ layout, dims, styleDefaults, artwork, title,
         // (and therefore which axis a long-edge flip turns about) isn't known here.
         // Shipping it the right way round keeps it predictable — mirror it in that
         // program if you send it to a duplex printer.
-        const insideSvg = generateDielineSVG(layout, {
+        const insideSvg = generateDielineSVG(lines, {
           ...(await artworkFor(artwork.inside)),
           title,
           trimGuide: true,
@@ -129,7 +137,7 @@ export default function ExportBar({ layout, dims, styleDefaults, artwork, title,
       // needed for print regardless of whether artwork has been added to it yet.
       const outside = await artworkFor(artwork.outside);
       const inside = await artworkFor(artwork.inside);
-      const blob = await exportDielinePDF(layout, {
+      const blob = await exportDielinePDF(lines, {
         outsideArtworkDataUrl: outside.artworkDataUrl,
         outsideArtworkMarkup: outside.artworkMarkup,
         insideArtworkDataUrl: inside.artworkDataUrl,
@@ -147,7 +155,7 @@ export default function ExportBar({ layout, dims, styleDefaults, artwork, title,
 
   const exportDXF = () =>
     run("dxf", async () => {
-      const dxf = generateDielineDXF(layout);
+      const dxf = generateDielineDXF(lines);
       save(`${title}.dxf`, new Blob([dxf], { type: "application/dxf" }));
     });
 
@@ -160,37 +168,57 @@ export default function ExportBar({ layout, dims, styleDefaults, artwork, title,
       save(`${title}.glb`, blob);
     });
 
+  // Scene images are captured by re-rendering at 3x the on-screen pixel ratio
+  // (capped at a 4096 px backing store), so PNG/JPG/PDF exports are much sharper
+  // than the live preview. SVG artwork stays vector in the 2D SVG/PDF exports.
+  const EXPORT_SCALE = 3;
+
+  const blobToDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error("Could not read the captured image."));
+    reader.readAsDataURL(blob);
+  });
+
   const exportSceneImage = (format: "png" | "jpg") => run(format, async () => {
     await ensure3D();
+    const capture = sceneCaptureRef.current;
     const canvas = sceneCanvasRef.current;
-    if (!canvas) throw new Error("Open the 3D preview first so its canvas is ready.");
+    if (!capture || !canvas) throw new Error("Open the 3D preview first so its canvas is ready.");
     const mime = format === "png" ? "image/png" : "image/jpeg";
-    const blob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob((value) => value ? resolve(value) : reject(new Error("Could not capture the 3D preview.")), mime, 0.94);
-    });
+    const blob = await capture({ transparent: false, scale: EXPORT_SCALE, mime });
     save(`${title}_3d.${format}`, blob);
   });
 
   const exportTransparentScene = () => run("transparent-png", async () => {
     await ensure3D();
-    const capture = transparentSceneExportRef.current;
+    const capture = sceneCaptureRef.current;
     if (!capture) throw new Error("Open the 3D preview first so its renderer is ready.");
-    save(`${title}_3d_transparent.png`, await capture());
+    save(`${title}_3d_transparent.png`, await capture({ transparent: true, scale: EXPORT_SCALE }));
   });
 
   const exportScenePDF = () => run("scene-pdf", async () => {
     const { jsPDF } = await import("jspdf");
     await ensure3D();
+    const capture = sceneCaptureRef.current;
     const canvas = sceneCanvasRef.current;
-    if (!canvas) throw new Error("Open the 3D preview first so its canvas is ready.");
+    if (!capture || !canvas) throw new Error("Open the 3D preview first so its canvas is ready.");
+    const blob = await capture({ transparent: false, scale: EXPORT_SCALE, mime: "image/png" });
+    const image = await blobToDataUrl(blob);
+    const probe = new Image();
+    const dimsPx = await new Promise<{ w: number; h: number }>((resolve, reject) => {
+      probe.onload = () => resolve({ w: probe.naturalWidth, h: probe.naturalHeight });
+      probe.onerror = () => reject(new Error("Could not read the captured image."));
+      probe.src = image;
+    });
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const margin = 10;
-    const scale = Math.min((pageWidth - 2 * margin) / canvas.width, (pageHeight - 2 * margin) / canvas.height);
-    const width = canvas.width * scale;
-    const height = canvas.height * scale;
-    doc.addImage(canvas.toDataURL("image/png"), "PNG", (pageWidth - width) / 2, (pageHeight - height) / 2, width, height);
+    const scale = Math.min((pageWidth - 2 * margin) / dimsPx.w, (pageHeight - 2 * margin) / dimsPx.h);
+    const width = dimsPx.w * scale;
+    const height = dimsPx.h * scale;
+    doc.addImage(image, "PNG", (pageWidth - width) / 2, (pageHeight - height) / 2, width, height);
     save(`${title}_3d.pdf`, doc.output("blob"));
   });
 

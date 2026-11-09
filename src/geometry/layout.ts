@@ -181,7 +181,35 @@ function mirrorWalk(node: PanelNode, originX: number, originY: number): WalkResu
     foldLines.push({ a: worldPoints[hingeIdx], b: worldPoints[(hingeIdx + 1) % n] });
   }
   const cutOutline = cutPaths(worldPoints, excludedEdges(node, n));
-  // Leaf flaps never have children in this app, so no further recursion needed here.
+  // Children of a mirrored (bottom-attached) panel live in the same y-flipped
+  // frame: left/right children keep their own frame but their origin's Y is
+  // flipped with the offset; a "top" child flips again, a "bottom" child flips
+  // back (double flip = unmirrored) — matching childMirrored() in panelEdits.
+  for (const child of node.children) {
+    const offset = child.parentOffset ?? 0;
+    let childOriginX = originX;
+    let childOriginY = originY;
+    let flip = false;
+    if (child.parentEdge === "right") {
+      childOriginX = originX + node.w;
+      childOriginY = originY - offset;
+    } else if (child.parentEdge === "left") {
+      childOriginX = originX - child.w;
+      childOriginY = originY - offset;
+    } else if (child.parentEdge === "top") {
+      childOriginX = originX + offset;
+      childOriginY = originY - node.h;
+      flip = true;
+    } else if (child.parentEdge === "bottom") {
+      childOriginX = originX + offset;
+      childOriginY = originY;
+      flip = false;
+    }
+    const res = flip ? mirrorWalk(child, childOriginX, childOriginY) : walk(child, childOriginX, childOriginY);
+    panels.push(...res.panels);
+    foldLines.push(...res.foldLines);
+    cutOutline.push(...res.cutOutline);
+  }
   return { panels, foldLines, cutOutline };
 }
 

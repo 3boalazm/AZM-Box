@@ -18,7 +18,9 @@ function computeHinge(node: PanelNode, parentW: number, parentH: number): HingeI
     case "right":
       return { pivot: [parentW, offset, 0], axis: "y", baseAngle: 0 };
     case "left":
-      return { pivot: [0, offset, 0], axis: "y", baseAngle: 0 };
+      // Must match Fold3D.tsx exactly: left-attached panels extend in -X in the flat
+      // sheet, so the hinge starts pre-rotated 180° (total +90° after a -90° fold).
+      return { pivot: [0, offset, 0], axis: "y", baseAngle: Math.PI };
     case "top":
       return { pivot: [offset, parentH, 0], axis: "x", baseAngle: 0 };
     case "bottom":
@@ -28,7 +30,7 @@ function computeHinge(node: PanelNode, parentW: number, parentH: number): HingeI
   }
 }
 
-function buildGroup(node: PanelNode, parentW: number, parentH: number, foldAmount: number): THREE.Group {
+function buildGroup(node: PanelNode, parentW: number, parentH: number, foldAmount: number, parentFace = ""): THREE.Group {
   const { pivot, axis, baseAngle } = computeHinge(node, parentW, parentH);
   const start = node.foldStart ?? 0;
   const end = node.foldEnd ?? 1;
@@ -46,6 +48,9 @@ function buildGroup(node: PanelNode, parentW: number, parentH: number, foldAmoun
   const marker = new THREE.Object3D();
   marker.position.set(midX, maxY, 0);
   marker.name = `${node.name}::tip`;
+  marker.userData.face = node.face;
+  marker.userData.parentEdge = node.parentEdge ?? "";
+  marker.userData.parentFace = parentFace;
   group.add(marker);
 
   if (["front", "back", "left", "right"].includes(node.face)) {
@@ -56,17 +61,18 @@ function buildGroup(node: PanelNode, parentW: number, parentH: number, foldAmoun
   }
 
   for (const child of node.children) {
-    group.add(buildGroup(child, node.w, node.h, foldAmount));
+    group.add(buildGroup(child, node.w, node.h, foldAmount, node.face));
   }
   return group;
 }
 
-function collectTips(group: THREE.Object3D, out: { name: string; pos: THREE.Vector3 }[]) {
+function collectTips(group: THREE.Object3D, out: { name: string; pos: THREE.Vector3; normal: THREE.Vector3; face: string; parentEdge: string; parentFace: string }[]) {
   group.updateWorldMatrix(true, false);
   if (group.name.endsWith("::tip")) {
     const pos = new THREE.Vector3();
     group.getWorldPosition(pos);
-    out.push({ name: group.name.replace("::tip", ""), pos });
+    const normal = new THREE.Vector3(0, 0, 1).transformDirection(group.parent ? group.parent.matrixWorld : group.matrixWorld);
+    out.push({ name: group.name.replace("::tip", ""), pos, normal, face: group.userData.face ?? "", parentEdge: group.userData.parentEdge ?? "", parentFace: group.userData.parentFace ?? "" });
   }
   for (const child of group.children) collectTips(child, out);
 }
@@ -92,7 +98,7 @@ console.log(`\n=== ${style.label} — L${dims.length} W${dims.width} H${dims.hei
 function tipsAt(t: number) {
   const sceneRoot = buildGroup(root, root.w, root.h, t);
   sceneRoot.updateWorldMatrix(true, true);
-  const tips: { name: string; pos: THREE.Vector3 }[] = [];
+  const tips: { name: string; pos: THREE.Vector3; normal: THREE.Vector3; face: string; parentEdge: string; parentFace: string }[] = [];
   collectTips(sceneRoot, tips);
   const walls: { name: string; center: THREE.Vector3; normal: THREE.Vector3 }[] = [];
   collectWallNormals(sceneRoot, walls);
@@ -151,6 +157,45 @@ for (const openTip of open.tips) {
   console.log(
     `    ${openTip.name.padEnd(28)} open=${openDist.toFixed(0).padStart(5)}  closed=${closedDist.toFixed(0).padStart(5)}  wall=${wallDist.toFixed(0).padStart(5)}  ${ok ? "OK (moved inward past its wall)" : "BUG (still outside its wall)"}`,
   );
+}
+console.log(`\n  Glue end-tab check (tab must tuck INSIDE the box at the seam, print side facing inward):`);
+// The box footprint in XZ is exactly the bounding box of the four wall centres
+// (each wall spans a full edge), padded by 1 mm for numeric slack.
+const wallXs = closed.walls.map((w) => w.center.x);
+const wallZs = closed.walls.map((w) => w.center.z);
+const boxMinX = Math.min(...wallXs) - 1, boxMaxX = Math.max(...wallXs) + 1;
+const boxMinZ = Math.min(...wallZs) - 1, boxMaxZ = Math.max(...wallZs) + 1;
+for (const t of closed.tips) {
+  if (t.face !== "glue" || (t.parentEdge !== "left" && t.parentEdge !== "right")) continue;
+  const inside = t.pos.x >= boxMinX && t.pos.x <= boxMaxX && t.pos.z >= boxMinZ && t.pos.z <= boxMaxZ;
+  const toCentroid = centroid.clone().sub(t.pos);
+  toCentroid.y = 0;
+  if (toCentroid.lengthSq() > 0) toCentroid.normalize();
+  const inward = t.normal.dot(toCentroid) > 0;
+  const ok = inside && inward;
+  if (!ok) failures++;
+  console.log(`    ${t.name.padEnd(28)} tip=(${t.pos.x.toFixed(1)},${t.pos.y.toFixed(1)},${t.pos.z.toFixed(1)}) inside=${inside ? "yes" : "NO "} printFacesInward=${inward ? "yes" : "NO "}  ${ok ? "OK (tucked inside the seam)" : "BUG (still on the outside)"}`);
+}
+console.log(`\n  Footprint check (every non-wall panel must end inside the box at full fold):`);
+const maxH = Math.max(...closed.walls.map((w) => w.center.y)) * 2; // wall centers sit at H/2
+for (const t of closed.tips) {
+  if (["front", "back", "left", "right"].includes(t.face)) continue;
+  const inside = t.pos.x >= boxMinX && t.pos.x <= boxMaxX && t.pos.z >= boxMinZ && t.pos.z <= boxMaxZ && t.pos.y >= -1 && t.pos.y <= maxH + 1;
+  if (!inside) failures++;
+  console.log(`    ${t.name.padEnd(28)} tip=(${t.pos.x.toFixed(1)},${t.pos.y.toFixed(1)},${t.pos.z.toFixed(1)})  ${inside ? "OK" : "BUG (outside the box)"}`);
+}
+console.log(`\n  Rim check (wall flaps must fold flat over their opening, not rotate past it onto/behind a wall):`);
+for (const t of closed.tips) {
+  if (t.parentEdge !== "top" && t.parentEdge !== "bottom") continue;
+  if (!["front", "back", "left", "right"].includes(t.parentFace)) continue;
+  // A top/bottom flap hinged straight off a wall closes as a horizontal cover at
+  // the rim (y = H for top, y = 0 for bottom). A tip anywhere else means the flap
+  // rotated PAST its closed pose — e.g. the old mailer lid, which flipped a full
+  // half-turn and ended lying flat against the OUTSIDE of the rear wall.
+  const rim = t.parentEdge === "top" ? maxH : 0;
+  const atRim = Math.abs(t.pos.y - rim) <= 1;
+  if (!atRim) failures++;
+  console.log(`    ${t.name.padEnd(28)} tip.y=${t.pos.y.toFixed(1).padStart(6)} (rim ${rim.toFixed(0)})  ${atRim ? "OK (folded over the opening)" : "BUG (rotated past the closed pose)"}`);
 }
 void footprintRadius;
 

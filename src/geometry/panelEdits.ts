@@ -24,6 +24,40 @@ const FOLD_ANGLE: Record<HingeEdge, number> = { top: -Math.PI / 2, bottom: Math.
 
 export const FACE_EDGES: HingeEdge[] = ["top", "right", "bottom", "left"];
 
+/**
+ * Fold window for a face added on `edge` of `host`, following the template
+ * builders' own closing order: side-wall flaps close FIRST (they end up as the
+ * INNER layers of the closure, tucked under), front/back "face" flaps close LAST
+ * (the outermost layer that covers everything), and glue-panel lock flaps land
+ * between. Left/right hinges (seam tabs and wall extensions) move with the tube.
+ * A face chained onto another flap folds after its parent settles, so tongues
+ * tuck in at the very end instead of racing their parent.
+ *
+ * The stacking inset in Fold3D derives its layer from foldStart, so distinct
+ * windows also fix the physical layering: flaps that used to share one window
+ * z-fought and drew over the face flap "from outside".
+ */
+export function addedFacePhase(host: PanelNode, edge: HingeEdge): { foldStart: number; foldEnd: number } {
+  if (edge === "left" || edge === "right") return { foldStart: 0, foldEnd: 0.4 };
+  switch (host.face) {
+    case "left":
+    case "right":
+      return { foldStart: 0.4, foldEnd: 0.7 };
+    case "front":
+    case "back":
+      return { foldStart: 0.7, foldEnd: 1 };
+    case "glue":
+      return { foldStart: 0.55, foldEnd: 0.8 };
+    default: {
+      const pStart = host.foldStart ?? 0;
+      const pEnd = host.foldEnd ?? 1;
+      const span = Math.max(0.15, pEnd - pStart);
+      const start = Math.min(pEnd, 0.8);
+      return { foldStart: start, foldEnd: Math.min(1, start + Math.max(0.2, span)) };
+    }
+  }
+}
+
 /** Gives every face an id that depends only on where it sits in the tree. */
 export function assignStableIds(root: PanelNode): PanelNode {
   const visit = (node: PanelNode, parent?: PanelNode) => {
@@ -46,11 +80,31 @@ export function assignStableIds(root: PanelNode): PanelNode {
 
 interface Located { node: PanelNode; mirrored: boolean }
 
+/**
+ * Whether a panel's local frame is flipped relative to its parent's — i.e. its
+ * local +Z (the printed/outside side) ends up facing INTO the box instead of
+ * out of it. Children of a flipped panel must fold the opposite way to still
+ * close inward over the opening (the same effect as the card-deck lock flaps,
+ * whose signs are negated by hand in boxBuilders.ts).
+ *
+ * Two things flip a frame:
+ *  - hinges that start pre-rotated 180° in computeHinge (bottom, left), and
+ *  - folds that rotate a half turn (|foldAngle| = PI, e.g. the glue tab tuck).
+ * Ignoring the left/right case is what made faces chained off a side tab or the
+ * glue panel swing OUTSIDE the box instead of tucking in.
+ */
+function childMirrored(parentMirrored: boolean, edge: HingeEdge | undefined, foldAngle?: number): boolean {
+  let flipped = parentMirrored;
+  if (edge === "bottom" || edge === "left") flipped = !flipped;
+  if (foldAngle !== undefined && Math.abs(Math.abs(foldAngle) - Math.PI) < 1e-6) flipped = !flipped;
+  return flipped;
+}
+
 function locate(root: PanelNode): Map<string, Located> {
   const found = new Map<string, Located>();
   const visit = (node: PanelNode, mirrored: boolean) => {
     found.set(node.id, { node, mirrored });
-    for (const child of node.children) visit(child, mirrored || child.parentEdge === "bottom");
+    for (const child of node.children) visit(child, childMirrored(mirrored, child.parentEdge, child.foldAngle));
   };
   visit(root, false);
   return found;
@@ -62,17 +116,22 @@ function locate(root: PanelNode): Map<string, Located> {
  * edge that is neither its own hinge nor already taken by another face.
  */
 function canHost(located: Located, edge: HingeEdge): boolean {
-  const { node, mirrored } = located;
-  if (mirrored || node.outline) return false;
+  const { node } = located;
+  if (node.outline) return false;
   if (node.parentEdge && (node.parentEdge === "top" || node.parentEdge === "bottom" ? edge === "bottom" : edge === OPPOSITE[node.parentEdge])) return false;
   return !node.children.some((child) => child.parentEdge === edge);
 }
 
 const edgeLength = (node: PanelNode, edge: HingeEdge) => (edge === "top" || edge === "bottom" ? node.w : node.h);
 
-function buildAddedFace(face: AddedFace, parent: PanelNode, index: number): PanelNode {
+function buildAddedFace(face: AddedFace, parent: PanelNode, index: number, parentMirrored: boolean): PanelNode {
   const span = edgeLength(parent, face.edge);
   const horizontal = face.edge === "top" || face.edge === "bottom";
+  // A mirrored (flipped-frame) parent reverses the sense of every fold about it —
+  // negate so the new face still closes INWARD over the box instead of swinging
+  // outside (same mirror effect as GLUE_TUCK).
+  const base = FOLD_ANGLE[face.edge];
+  const phase = addedFacePhase(parent, face.edge);
   return {
     id: face.id,
     name: `Extra face ${index + 1}`,
@@ -81,9 +140,9 @@ function buildAddedFace(face: AddedFace, parent: PanelNode, index: number): Pane
     parentEdge: face.edge,
     parentOffset: 0,
     parentId: parent.id,
-    foldAngle: FOLD_ANGLE[face.edge],
-    foldStart: 0.7,
-    foldEnd: 1,
+    foldAngle: parentMirrored ? -base : base,
+    foldStart: phase.foldStart,
+    foldEnd: phase.foldEnd,
     hinged: true,
     face: "extra",
     children: [],
@@ -163,9 +222,9 @@ export function applyPanelEdits(root: PanelNode, edits?: PanelEdits): PanelNode 
   (edits.added ?? []).forEach((face, index) => {
     const parent = located.get(face.parentId);
     if (!parent || located.has(face.id) || !canHost(parent, face.edge)) return;
-    const node = buildAddedFace(face, parent.node, index);
+    const node = buildAddedFace(face, parent.node, index, parent.mirrored);
     parent.node.children.push(node);
-    located.set(node.id, { node, mirrored: parent.mirrored || face.edge === "bottom" });
+    located.set(node.id, { node, mirrored: childMirrored(parent.mirrored, face.edge, node.foldAngle) });
   });
 
   return base;
@@ -197,7 +256,12 @@ export function faceRemovalLoss(root: PanelNode, panelId: string): string[] {
 
 const withEdits = (dims: BoxDimensions, edits: PanelEdits): BoxDimensions => {
   const { panelEdits: _old, ...rest } = dims;
-  return edits.removed?.length || edits.added?.length ? { ...rest, panelEdits: edits } : rest;
+  const next: PanelEdits = {
+    ...(edits.removed?.length ? { removed: edits.removed } : {}),
+    ...(edits.added?.length ? { added: edits.added } : {}),
+    ...(edits.mirrored?.length ? { mirrored: edits.mirrored } : {}),
+  };
+  return Object.keys(next).length > 0 ? { ...rest, panelEdits: next } : rest;
 };
 
 let addedCounter = 0;
@@ -238,7 +302,9 @@ export function removeFace(dims: BoxDimensions, root: PanelNode, panelId: string
     .filter((face) => !lost.has(face.id))
     .map((face) => (face.parentId === panelId && node.parentId ? { ...face, parentId: node.parentId } : face));
   const removed = wasAdded || (edits.removed ?? []).includes(panelId) ? edits.removed ?? [] : [...(edits.removed ?? []), panelId];
-  return withEdits(dims, { removed: removed.slice(0, MAX_REMOVED), added });
+  // A removed face cannot stay trace-mirrored — drop it from the mirror list too.
+  const mirrored = (edits.mirrored ?? []).filter((id) => !lost.has(id) && id !== panelId);
+  return withEdits(dims, { removed: removed.slice(0, MAX_REMOVED), added, ...(mirrored.length ? { mirrored } : {}) });
 }
 
 export function setAddedFaceDepth(dims: BoxDimensions, id: string, depth: number): BoxDimensions {
@@ -253,7 +319,24 @@ export function clearPanelEdits(dims: BoxDimensions): BoxDimensions {
 }
 
 export function panelEditCount(dims: BoxDimensions): number {
-  return (dims.panelEdits?.removed?.length ?? 0) + (dims.panelEdits?.added?.length ?? 0);
+  return (dims.panelEdits?.removed?.length ?? 0) + (dims.panelEdits?.added?.length ?? 0) + (dims.panelEdits?.mirrored?.length ?? 0);
+}
+
+/** True when the face's trace (cut/fold lines) is currently drawn mirrored. */
+export function isFaceMirrored(dims: BoxDimensions, panelId: string): boolean {
+  return (dims.panelEdits?.mirrored ?? []).includes(panelId);
+}
+
+/**
+ * Toggles horizontal trace-mirroring of a face: its cut outline and fold lines
+ * flip about the face's own centre in the 2D dieline and every export, while
+ * artwork placed on the face is left untouched.
+ */
+export function toggleFaceMirror(dims: BoxDimensions, panelId: string): BoxDimensions {
+  const edits = dims.panelEdits ?? {};
+  const current = edits.mirrored ?? [];
+  const mirrored = current.includes(panelId) ? current.filter((id) => id !== panelId) : [...current, panelId].slice(0, MAX_REMOVED);
+  return withEdits(dims, { removed: edits.removed, added: edits.added, mirrored });
 }
 
 const isId = (value: unknown): value is string => typeof value === "string" && value.length > 0 && value.length <= MAX_ID_LENGTH;
@@ -266,6 +349,7 @@ export function sanitizePanelEdits(raw: unknown): PanelEdits | undefined {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
   const source = raw as Record<string, unknown>;
   const removed = Array.isArray(source.removed) ? [...new Set(source.removed.filter(isId))].slice(0, MAX_REMOVED) : [];
+  const mirrored = Array.isArray(source.mirrored) ? [...new Set(source.mirrored.filter(isId))].slice(0, MAX_REMOVED) : [];
   const seen = new Set<string>();
   const added: AddedFace[] = [];
   for (const entry of Array.isArray(source.added) ? source.added : []) {
@@ -278,5 +362,7 @@ export function sanitizePanelEdits(raw: unknown): PanelEdits | undefined {
     added.push({ id: face.id, parentId: face.parentId, edge: face.edge as HingeEdge, depth: Math.min(MAX_DEPTH_MM, Math.max(MIN_DEPTH_MM, face.depth)) });
     if (added.length >= MAX_ADDED) break;
   }
-  return removed.length || added.length ? { ...(removed.length ? { removed } : {}), ...(added.length ? { added } : {}) } : undefined;
+  return removed.length || added.length || mirrored.length
+    ? { ...(removed.length ? { removed } : {}), ...(added.length ? { added } : {}), ...(mirrored.length ? { mirrored } : {}) }
+    : undefined;
 }

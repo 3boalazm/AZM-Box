@@ -8,7 +8,8 @@ import StudioInspector from "./components/StudioInspector";
 import ExportBar from "./components/ExportBar";
 import { BOX_STYLES, getBoxStyle } from "./geometry/boxBuilders";
 import { computeFlatLayout, flipLayout } from "./geometry/layout";
-import type { BoxDimensions, BoxStyleId, HingeEdge } from "./geometry/types";
+import { applyTraceMirror, mirroredTraceIds } from "./geometry/traceMirror";
+import type { BoxDimensions, BoxStyleId, FaceRole, HingeEdge } from "./geometry/types";
 import { transferDimensionsToTemplate } from "./geometry/templateDimensions";
 import { emptyArtwork } from "./artwork/types";
 import { visibleArtwork } from "./artwork/layerVisibility";
@@ -41,6 +42,9 @@ export default function App() {
   const [artwork, setArtwork] = useState(emptyArtwork());
   const [activeSide, setActiveSide] = useState<"outside" | "inside">("outside");
   const [selectedPanelId, setSelectedPanelId] = useState<string | null>(null);
+  // Double-clicking a face on the dieline asks the sidebar to open that face's
+  // section, scroll its measurement control into view and focus it.
+  const [openFace, setOpenFace] = useState<{ face: FaceRole; nonce: number } | null>(null);
   const [faceEditing, setFaceEditing] = useState(true);
   const [selectedArtworkLayerId, setSelectedArtworkLayerId] = useState<string | null>(null);
   const [selectedStudioItem, setSelectedStudioItem] = useState("scene:model");
@@ -69,7 +73,7 @@ export default function App() {
 
   const sceneRef = useRef<THREE.Group | null>(null);
   const sceneCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const transparentSceneExportRef = useRef<(() => Promise<Blob>) | null>(null);
+  const sceneCaptureRef = useRef<import("./components/Fold3D").SceneCapture | null>(null);
   const skipNextArtworkAnchorAdjust = useRef(false);
   const restorePromptHandled = useRef(false);
   const foldAnimationRef = useRef<number | null>(null);
@@ -103,6 +107,11 @@ export default function App() {
   const flatLayout = useMemo(() => computeFlatLayout(root), [root]);
   // Flipping the die-cut only redraws the template; artwork on the sheet stays put.
   const layout = useMemo(() => flipLayout(flatLayout, !!dims.flipX, !!dims.flipY), [flatLayout, dims.flipX, dims.flipY]);
+  // Trace-only mirrored copy of the layout for faces flagged in panelEdits.mirrored:
+  // the cut/fold lines of those faces flip about the face's centre in the 2D view and
+  // in exports, while artwork mapping keeps using the original `layout` (never flipped).
+  // Applied after the die-cut flip so a face mirrors about its centre in the flipped sheet.
+  const traceLayout = useMemo(() => applyTraceMirror(layout, mirroredTraceIds(dims)), [layout, dims]);
   const displayedArtwork = useMemo(() => visibleArtwork(artwork, sceneSettings.hiddenLayerIds, sceneSettings.showOutsideArtwork, sceneSettings.showInsideArtwork), [artwork, sceneSettings.hiddenLayerIds, sceneSettings.showOutsideArtwork, sceneSettings.showInsideArtwork]);
 
   // Keep the uploaded full-sheet artwork registered to the root/body panel when
@@ -139,6 +148,12 @@ export default function App() {
   // what restarts it), and the face tells the sidebar which field to highlight.
   const [panelClickNonce, setPanelClickNonce] = useState(0);
   const selectedPanelFace = layout.panels.find((p) => p.id === selectedPanelId)?.face;
+
+  const handleOpenPanel = (id: string) => {
+    handleSelectPanel(id);
+    const face = layout.panels.find((p) => p.id === id)?.face;
+    if (face) setOpenFace({ face, nonce: Date.now() });
+  };
 
   const handleSelectPanel = (id: string | null) => {
     setSelectedPanelId(id);
@@ -506,11 +521,11 @@ export default function App() {
           {helpOpen && <div className="help-popover" role="dialog" aria-label="Keyboard shortcuts" onClick={(e) => e.stopPropagation()}>
             <div className="help-head"><strong>Keyboard shortcuts</strong><button type="button" className="icon-btn" aria-label="Close shortcuts" onClick={() => setHelpOpen(false)}><Icon name="close"/></button></div>
             <h4>General</h4><dl><dt>⌘Z / Ctrl+Z</dt><dd>Undo</dd><dt>⇧⌘Z / Ctrl+Shift+Z</dt><dd>Redo</dd></dl>
-            <h4>2D editor</h4><dl><dt>Scroll</dt><dd>Zoom to cursor</dd><dt>Space + drag</dt><dd>Pan the canvas</dd><dt>Middle-drag</dt><dd>Pan the canvas</dd><dt>Shift + rotate</dt><dd>Snap to 45°</dd><dt>Drag a handle</dt><dd>Resize freely</dd><dt>Click a panel</dt><dd>Select it and reveal its settings</dd></dl>
+            <h4>2D editor</h4><dl><dt>Scroll / Ctrl/⌘+Scroll</dt><dd>Zoom to cursor</dd><dt>Ctrl/⌘ + and −</dt><dd>Zoom in / out</dd><dt>Ctrl/⌘ 0</dt><dd>Fit the dieline to view</dd><dt>Space + drag</dt><dd>Pan the canvas</dd><dt>Middle-drag</dt><dd>Pan the canvas</dd><dt>Shift + rotate</dt><dd>Snap to 45°</dd><dt>Drag a handle</dt><dd>Resize freely</dd><dt>Click a panel</dt><dd>Select it and flash its setting</dd><dt>Double-click a panel</dt><dd>Jump to its settings</dd></dl>
             <h4>3D studio</h4><dl><dt>Left-drag</dt><dd>Orbit around the box</dd><dt>Right-drag</dt><dd>Pan the view</dd><dt>Scroll</dt><dd>Zoom in / out</dd></dl>
           </div>}
         </div>
-        <ExportBar layout={layout} dims={dims} styleDefaults={style.defaultDimensions} artwork={artwork} title={style.label.replace(/\s+/g, "_")} sceneRef={sceneRef} sceneCanvasRef={sceneCanvasRef} transparentSceneExportRef={transparentSceneExportRef} activeTab={activeTab} onRequestTab={setActiveTab}/>
+        <ExportBar layout={layout} traceLayout={traceLayout} dims={dims} styleDefaults={style.defaultDimensions} artwork={artwork} title={style.label.replace(/\s+/g, "_")} sceneRef={sceneRef} sceneCanvasRef={sceneCanvasRef} sceneCaptureRef={sceneCaptureRef} activeTab={activeTab} onRequestTab={setActiveTab}/>
       </header>
 
       <div className="body" id="workspace">
@@ -526,6 +541,7 @@ export default function App() {
           highlightNonce={panelClickNonce}
           selectedPanelId={selectedPanelId}
           onRemoveFace={handleRemoveFace}
+          openFace={openFace}
           />
         </div>}
         {activeTab === "2d" && <Sidebar
@@ -538,6 +554,7 @@ export default function App() {
           highlightNonce={panelClickNonce}
           selectedPanelId={selectedPanelId}
           onRemoveFace={handleRemoveFace}
+          openFace={openFace}
         />}
 
         <main className="stage" id="workspace-canvas" role="tabpanel" tabIndex={0} aria-labelledby={activeTab === "2d" ? "view-2d" : "view-3d"} onDragEnter={handleStageDragEnter} onDragOver={handleStageDragOver} onDragLeave={handleStageDragLeave} onDrop={handleStageDrop}>
@@ -547,6 +564,8 @@ export default function App() {
               <Suspense fallback={<div className="stage-loading">Loading 2D editor…</div>}>
               <DielineEditor
                 layout={layout}
+                onOpenPanel={handleOpenPanel}
+                traceLayout={traceLayout}
                 side={displayedArtwork[activeSide]}
                 pxPerMm={2.2}
                 selectedPanelId={selectedPanelId}
@@ -575,7 +594,7 @@ export default function App() {
           ) : (
             <div className="stage-3d">
               <Suspense fallback={<div className="stage-loading">Loading 3D studio…</div>}>
-                <Fold3D root={root} dims={dims} layout={layout} artwork={displayedArtwork} showDimensions={showDimensions} foldAmount={foldAmount} sceneSettings={sceneSettings} onChangeSceneSettings={setSceneSettings} onTransparentExportReady={(capture) => (transparentSceneExportRef.current = capture)} onSceneReady={(g) => (sceneRef.current = g)} onCanvasReady={(canvas) => (sceneCanvasRef.current = canvas)} onSelectPanel={handleStudioSelectPanel} />
+                <Fold3D root={root} dims={dims} layout={layout} artwork={displayedArtwork} showDimensions={showDimensions} foldAmount={foldAmount} sceneSettings={sceneSettings} onChangeSceneSettings={setSceneSettings} onSceneCaptureReady={(capture) => (sceneCaptureRef.current = capture)} onSceneReady={(g) => (sceneRef.current = g)} onCanvasReady={(canvas) => (sceneCanvasRef.current = canvas)} onSelectPanel={handleStudioSelectPanel} />
               </Suspense>
               <div className="fold-slider" aria-label="3D box folding controls">
                 <div className="fold-progress">

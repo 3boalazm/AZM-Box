@@ -60,6 +60,27 @@ const chain = freeFaceEdges(withAdded).find((h) => h.panelId === added.id);
 const second = chain ? addFace(added.dims, withAdded, chain.panelId, chain.edge) : null;
 check("faces can be chained", !!second && computeFlatLayout(build(second.dims)).panels.some((p) => p.id === second.id));
 
+// A face can also be added on a bottom (mirrored) flap's free outer edge — this must
+// work on every box style, not just where the walls happen to have free edges.
+const rscStyle = getBoxStyle("rsc");
+const rscBase = rscStyle.defaultDimensions;
+const rscRoot = rscStyle.build(rscBase);
+const bottomFlap = flattenTree(rscRoot).find((n) => n.face === "flap-bottom-front")!;
+const flapHandle = freeFaceEdges(rscRoot).find((h) => h.panelId === bottomFlap.id && h.edge === "top");
+check("a bottom flap offers its outer edge for a new face", !!flapHandle);
+const onFlap = flapHandle ? addFace(rscBase, rscRoot, bottomFlap.id, "top") : null;
+check("a face can be added on a bottom flap", !!onFlap);
+if (onFlap) {
+  const newLayout = computeFlatLayout(rscStyle.build(onFlap.dims));
+  const newPanel = newLayout.panels.find((p) => p.id === onFlap.id);
+  const flapInNew = newLayout.panels.find((p) => p.id === bottomFlap.id)!;
+  check(
+    "the face on the bottom flap is laid out beyond the flap, mirrored like it",
+    !!newPanel && newPanel.mirrored === true && newPanel.max[1] <= flapInNew.min[1] + 1e-6,
+    newPanel ? `mirrored=${newPanel.mirrored} maxY=${newPanel.max[1].toFixed(1)} flapMinY=${flapInNew.min[1].toFixed(1)}` : "missing",
+  );
+}
+
 // Removing faces.
 const flap = flattenTree(root).find((n) => n.face.startsWith("flap-top"))!;
 const noFlap = build(removeFace(base, root, flap.id));
