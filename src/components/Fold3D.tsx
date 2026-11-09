@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import type { BoxDimensions, DielineLayout, PanelNode } from "../geometry/types";
 import { rect } from "../geometry/shapes";
+import { childPrintMirrored } from "../geometry/printSide";
 import type { PanelTextures } from "../artwork/usePanelTextures";
 import { usePanelTextures } from "../artwork/usePanelTextures";
 import type { ArtworkState } from "../artwork/types";
@@ -65,7 +66,7 @@ function computeHinge(node: PanelNode, parentW: number, parentH: number): HingeI
   }
 }
 
-function PanelMesh({ node, textures, material, showOutsideArtwork, showInsideArtwork, onSelectPanel }: { node: PanelNode; textures?: PanelTextures; material: MaterialParams; showOutsideArtwork: boolean; showInsideArtwork: boolean; onSelectPanel?: (id: string) => void }) {
+function PanelMesh({ node, mirrored, textures, material, showOutsideArtwork, showInsideArtwork, onSelectPanel }: { node: PanelNode; mirrored: boolean; textures?: PanelTextures; material: MaterialParams; showOutsideArtwork: boolean; showInsideArtwork: boolean; onSelectPanel?: (id: string) => void }) {
   const geometry = useMemo(() => {
     const pts = node.outline ?? rect(node.w, node.h);
     const shape = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)));
@@ -79,14 +80,20 @@ function PanelMesh({ node, textures, material, showOutsideArtwork, showInsideArt
     // color (whatever sat at that edge pixel). That's what made uploaded artwork,
     // and the "printed" measurement labels, invisible in the 3D view. Remap to
     // real 0..1 UVs using this panel's own width/height.
+    // A panel in a flipped frame (see childPrintMirrored) has its local +Z pointing
+    // into the box, so its two faces are drawn with the sides swapped below. Mirror
+    // the U axis to match: the swapped side already reverses what the viewer sees,
+    // and these two reversals cancel, so the outside artwork still reads correctly
+    // from outside the box and the inside sheet still reads correctly from within.
     const uv = geom.getAttribute("uv");
     for (let i = 0; i < uv.count; i++) {
-      uv.setXY(i, uv.getX(i) / node.w, uv.getY(i) / node.h);
+      const u = uv.getX(i) / node.w;
+      uv.setXY(i, mirrored ? 1 - u : u, uv.getY(i) / node.h);
     }
     uv.needsUpdate = true;
 
     return geom;
-  }, [node]);
+  }, [node, mirrored]);
 
   // Panel textures are rasterized asynchronously, so the very first render always
   // has map=undefined and the material gets COMPILED WITHOUT the USE_MAP shader
@@ -116,7 +123,7 @@ function PanelMesh({ node, textures, material, showOutsideArtwork, showInsideArt
           key={outsideKey}
           map={showOutsideArtwork ? textures?.outside : undefined}
           color={showOutsideArtwork && textures ? material.tint : material.boardColor}
-          side={THREE.FrontSide}
+          side={mirrored ? THREE.BackSide : THREE.FrontSide}
           {...finish}
         />
       </mesh>
@@ -125,7 +132,7 @@ function PanelMesh({ node, textures, material, showOutsideArtwork, showInsideArt
           key={insideKey}
           map={showInsideArtwork ? textures?.inside : undefined}
           color={showInsideArtwork && textures ? material.tint : material.insideColor}
-          side={THREE.BackSide}
+          side={mirrored ? THREE.FrontSide : THREE.BackSide}
           {...finish}
         />
       </mesh>
@@ -138,6 +145,7 @@ function PanelGroup({
   parentW,
   parentH,
   foldAmount,
+  mirrored,
   texturesById,
   material,
   showOutsideArtwork,
@@ -148,6 +156,7 @@ function PanelGroup({
   parentW: number;
   parentH: number;
   foldAmount: number;
+  mirrored?: boolean;
   texturesById: Map<string, PanelTextures>;
   material: MaterialParams;
   showOutsideArtwork: boolean;
@@ -168,9 +177,9 @@ function PanelGroup({
   return (
     <group position={pivot} rotation={rotation}>
       <group position={[0, 0, stackInset]}>
-        <PanelMesh node={node} textures={texturesById.get(node.id)} material={material} showOutsideArtwork={showOutsideArtwork} showInsideArtwork={showInsideArtwork} onSelectPanel={onSelectPanel} />
+        <PanelMesh node={node} mirrored={!!mirrored} textures={texturesById.get(node.id)} material={material} showOutsideArtwork={showOutsideArtwork} showInsideArtwork={showInsideArtwork} onSelectPanel={onSelectPanel} />
         {node.children.map((child) => (
-          <PanelGroup key={child.id} node={child} parentW={node.w} parentH={node.h} foldAmount={foldAmount} texturesById={texturesById} material={material} showOutsideArtwork={showOutsideArtwork} showInsideArtwork={showInsideArtwork} onSelectPanel={onSelectPanel} />
+          <PanelGroup key={child.id} node={child} parentW={node.w} parentH={node.h} foldAmount={foldAmount} mirrored={childPrintMirrored(!!mirrored, child.parentEdge)} texturesById={texturesById} material={material} showOutsideArtwork={showOutsideArtwork} showInsideArtwork={showInsideArtwork} onSelectPanel={onSelectPanel} />
         ))}
       </group>
     </group>
