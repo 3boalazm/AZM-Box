@@ -4,7 +4,8 @@ import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import type { BoxDimensions, DielineLayout, PanelNode } from "../geometry/types";
 import { rect } from "../geometry/shapes";
-import { childPrintMirrored } from "../geometry/printSide";
+import type { PanelPrintFrame } from "../geometry/printSide";
+import { panelPrintFrames, printFrameOf } from "../geometry/printSide";
 import { PRODUCT_SHOTS, cameraPoseForShot } from "../project/scenePresets";
 import type { ShotFraming } from "../project/scenePresets";
 import { getPreferences, scenePresetFrom, setPreferences, usePreferences } from "../lib/preferences";
@@ -77,7 +78,7 @@ function computeHinge(node: PanelNode, parentW: number, parentH: number): HingeI
   }
 }
 
-function PanelMesh({ node, mirrored, textures, material, showOutsideArtwork, showInsideArtwork, onSelectPanel }: { node: PanelNode; mirrored: boolean; textures?: PanelTextures; material: MaterialParams; showOutsideArtwork: boolean; showInsideArtwork: boolean; onSelectPanel?: (id: string) => void }) {
+function PanelMesh({ node, frame, textures, material, showOutsideArtwork, showInsideArtwork, onSelectPanel }: { node: PanelNode; frame: PanelPrintFrame; textures?: PanelTextures; material: MaterialParams; showOutsideArtwork: boolean; showInsideArtwork: boolean; onSelectPanel?: (id: string) => void }) {
   const geometry = useMemo(() => {
     const pts = node.outline ?? rect(node.w, node.h);
     const shape = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)));
@@ -91,20 +92,22 @@ function PanelMesh({ node, mirrored, textures, material, showOutsideArtwork, sho
     // color (whatever sat at that edge pixel). That's what made uploaded artwork,
     // and the "printed" measurement labels, invisible in the 3D view. Remap to
     // real 0..1 UVs using this panel's own width/height.
-    // A panel in a flipped frame (see childPrintMirrored) has its local +Z pointing
-    // into the box, so its two faces are drawn with the sides swapped below. Mirror
-    // the U axis to match: the swapped side already reverses what the viewer sees,
-    // and these two reversals cancel, so the outside artwork still reads correctly
-    // from outside the box and the inside sheet still reads correctly from within.
+    // Remap to 0..1, undoing whatever reflection separates this mesh's frame from
+    // the frame its texture was cut in (printSide.ts measures it). The canvas
+    // renderPanelCanvas hands back is already indexed by the panel's own sheet
+    // coordinates, so a panel whose two frames agree needs no flip at all. The
+    // old code flipped U for every bottom-attached panel on top of that, which is
+    // what mirrored the whole bottom face of a reverse tuck end.
     const uv = geom.getAttribute("uv");
     for (let i = 0; i < uv.count; i++) {
       const u = uv.getX(i) / node.w;
-      uv.setXY(i, mirrored ? 1 - u : u, uv.getY(i) / node.h);
+      const v = uv.getY(i) / node.h;
+      uv.setXY(i, frame.flipU ? 1 - u : u, frame.flipV ? 1 - v : v);
     }
     uv.needsUpdate = true;
 
     return geom;
-  }, [node, mirrored]);
+  }, [node, frame.flipU, frame.flipV]);
 
   // Panel textures are rasterized asynchronously, so the very first render always
   // has map=undefined and the material gets COMPILED WITHOUT the USE_MAP shader
@@ -134,7 +137,7 @@ function PanelMesh({ node, mirrored, textures, material, showOutsideArtwork, sho
           key={outsideKey}
           map={showOutsideArtwork ? textures?.outside : undefined}
           color={showOutsideArtwork && textures ? material.tint : material.boardColor}
-          side={mirrored ? THREE.BackSide : THREE.FrontSide}
+          side={frame.mirrored ? THREE.BackSide : THREE.FrontSide}
           {...finish}
         />
       </mesh>
@@ -143,7 +146,7 @@ function PanelMesh({ node, mirrored, textures, material, showOutsideArtwork, sho
           key={insideKey}
           map={showInsideArtwork ? textures?.inside : undefined}
           color={showInsideArtwork && textures ? material.tint : material.insideColor}
-          side={mirrored ? THREE.FrontSide : THREE.BackSide}
+          side={frame.mirrored ? THREE.FrontSide : THREE.BackSide}
           {...finish}
         />
       </mesh>
@@ -156,7 +159,7 @@ function PanelGroup({
   parentW,
   parentH,
   foldAmount,
-  mirrored,
+  printFrames,
   texturesById,
   material,
   showOutsideArtwork,
@@ -167,7 +170,7 @@ function PanelGroup({
   parentW: number;
   parentH: number;
   foldAmount: number;
-  mirrored?: boolean;
+  printFrames: Map<string, PanelPrintFrame>;
   texturesById: Map<string, PanelTextures>;
   material: MaterialParams;
   showOutsideArtwork: boolean;
@@ -188,9 +191,9 @@ function PanelGroup({
   return (
     <group position={pivot} rotation={rotation}>
       <group position={[0, 0, stackInset]}>
-        <PanelMesh node={node} mirrored={!!mirrored} textures={texturesById.get(node.id)} material={material} showOutsideArtwork={showOutsideArtwork} showInsideArtwork={showInsideArtwork} onSelectPanel={onSelectPanel} />
+        <PanelMesh node={node} frame={printFrameOf(printFrames, node.id)} textures={texturesById.get(node.id)} material={material} showOutsideArtwork={showOutsideArtwork} showInsideArtwork={showInsideArtwork} onSelectPanel={onSelectPanel} />
         {node.children.map((child) => (
-          <PanelGroup key={child.id} node={child} parentW={node.w} parentH={node.h} foldAmount={foldAmount} mirrored={childPrintMirrored(!!mirrored, child.parentEdge)} texturesById={texturesById} material={material} showOutsideArtwork={showOutsideArtwork} showInsideArtwork={showInsideArtwork} onSelectPanel={onSelectPanel} />
+          <PanelGroup key={child.id} node={child} parentW={node.w} parentH={node.h} foldAmount={foldAmount} printFrames={printFrames} texturesById={texturesById} material={material} showOutsideArtwork={showOutsideArtwork} showInsideArtwork={showInsideArtwork} onSelectPanel={onSelectPanel} />
         ))}
       </group>
     </group>
@@ -344,6 +347,9 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
   // 12 px/mm (~300 DPI) is what keeps 6 pt legal copy readable in 3D; the hook
   // scales it down for sheets too large to rasterize at that density.
   const texturesById = usePanelTextures(layout, artwork, 12, showDimensions);
+  // Measured against the dieline, so the frame a panel's artwork was cut in and
+  // the frame its mesh is built in can never drift apart. See printSide.ts.
+  const printFrames = useMemo(() => panelPrintFrames(root, layout), [root, layout]);
   const groupRef = useRef<THREE.Group>(null);
   const controlsRef = useRef<StudioControls["current"]>(null);
   const pendingCameraPose = useRef<CameraPose | null>(null);
@@ -480,7 +486,7 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
             <group rotation={rotationRad}>
               <group position={[-modelCenter[0], -modelCenter[1], -modelCenter[2]]}>
                 <group ref={(g) => { groupRef.current = g; if (g && onSceneReady) onSceneReady(g); }}>
-                  <PanelGroup node={root} parentW={root.w} parentH={root.h} foldAmount={foldAmount} texturesById={texturesById} material={material} showOutsideArtwork={sceneSettings.showOutsideArtwork !== false} showInsideArtwork={sceneSettings.showInsideArtwork !== false} onSelectPanel={onSelectPanel} />
+                  <PanelGroup node={root} parentW={root.w} parentH={root.h} foldAmount={foldAmount} printFrames={printFrames} texturesById={texturesById} material={material} showOutsideArtwork={sceneSettings.showOutsideArtwork !== false} showInsideArtwork={sceneSettings.showInsideArtwork !== false} onSelectPanel={onSelectPanel} />
                 </group>
               </group>
             </group>
