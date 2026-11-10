@@ -11,7 +11,7 @@ import { getPreferences, scenePresetFrom, setPreferences, usePreferences } from 
 import type { PanelTextures } from "../artwork/usePanelTextures";
 import { usePanelTextures } from "../artwork/usePanelTextures";
 import type { ArtworkState } from "../artwork/types";
-import type { SceneSettings, CameraPreset, CameraPose, MaterialParams } from "../project/sceneSettings";
+import type { SceneSettings, CameraPreset, CameraPose, MaterialParams, ToneMapping } from "../project/sceneSettings";
 import { applyMaterialPreset } from "../project/sceneSettings";
 import { surfaceBumpTexture } from "../artwork/surfaceTextures";
 import { getCameraMouseButtons } from "./cameraControls";
@@ -240,7 +240,13 @@ function CameraRig({ dims, preset, cameraPose, fov, resetKey, controlsRef, contr
 }
 
 /** Exposure and procedural studio reflections (no network, so it works offline). */
-function SceneTuning({ exposure, envLight }: { exposure: number; envLight: number }) {
+const TONE_MAPPING_MODES: Record<ToneMapping, THREE.ToneMapping> = {
+  neutral: THREE.NeutralToneMapping,
+  filmic: THREE.ACESFilmicToneMapping,
+  linear: THREE.NoToneMapping,
+};
+
+function SceneTuning({ exposure, envLight, toneMapping }: { exposure: number; envLight: number; toneMapping: ToneMapping }) {
   const { gl, scene } = useThree();
   useEffect(() => {
     const generator = new THREE.PMREMGenerator(gl);
@@ -256,6 +262,12 @@ function SceneTuning({ exposure, envLight }: { exposure: number; envLight: numbe
   }, [gl, scene]);
   useEffect(() => { scene.environmentIntensity = envLight; }, [scene, envLight]);
   useEffect(() => { gl.toneMappingExposure = exposure; }, [gl, exposure]);
+  // R3F defaults the renderer to ACES, which rolls highlights off and desaturates
+  // as it does so. On a lit photographic scene that reads as filmic; on flat
+  // printed artwork it just drains the ink — white board renders grey and spot
+  // colours go pale. Three recompiles the affected materials on its own when the
+  // renderer's curve changes, so this is all the switch needs to do.
+  useEffect(() => { gl.toneMapping = TONE_MAPPING_MODES[toneMapping] ?? THREE.NeutralToneMapping; }, [gl, toneMapping]);
   return null;
 }
 
@@ -329,7 +341,9 @@ interface Fold3DProps {
 }
 
 export default function Fold3D({ root, dims, layout, artwork, showDimensions, foldAmount, sceneSettings, onChangeSceneSettings, onSceneCaptureReady, onSceneReady, onCanvasReady, onSelectPanel, active = true }: Fold3DProps) {
-  const texturesById = usePanelTextures(layout, artwork, 6, showDimensions);
+  // 12 px/mm (~300 DPI) is what keeps 6 pt legal copy readable in 3D; the hook
+  // scales it down for sheets too large to rasterize at that density.
+  const texturesById = usePanelTextures(layout, artwork, 12, showDimensions);
   const groupRef = useRef<THREE.Group>(null);
   const controlsRef = useRef<StudioControls["current"]>(null);
   const pendingCameraPose = useRef<CameraPose | null>(null);
@@ -473,7 +487,7 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
           </group>
         </group>
         <Turntable spinRef={spinRef} enabled={sceneSettings.turntable} />
-        <SceneTuning exposure={sceneSettings.exposure} envLight={sceneSettings.envLight} />
+        <SceneTuning exposure={sceneSettings.exposure} envLight={sceneSettings.envLight} toneMapping={sceneSettings.toneMapping} />
         <CameraRig dims={dims} preset={preset} cameraPose={sceneSettings.cameraPose} fov={sceneSettings.fov} resetKey={cameraResetKey} controlsRef={controlsRef} controlsReady={controlsReady} onPresetApplied={storeAppliedPose} />
         <TransparentCapture onReady={onSceneCaptureReady} />
         <Suspense fallback={null}>
@@ -506,6 +520,7 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
             {["#e9e6df", "#f5f3ed", "#ffffff", "#dce4ec", "#23252b"].map((color) => <button key={color} type="button" aria-label={`Background ${color}`} title={color} className={background === color ? "selected" : ""} style={{ background: color }} onClick={() => updateScene({ background: color })} />)}
             <input type="color" aria-label="Custom background color" value={background} onChange={(event) => updateScene({ background: event.target.value })} />
           </div></div>
+          <label className="studio-select-label">Colour response <select value={sceneSettings.toneMapping} onChange={(event) => updateScene({ toneMapping: event.target.value as ToneMapping })}><option value="neutral">Print accurate</option><option value="filmic">Filmic</option><option value="linear">Raw</option></select></label>
           <label className="studio-light-slider">Ambient <b>{ambient.toFixed(1)}</b><input type="range" min="0" max="3" step="0.05" value={ambient} onChange={(event) => updateScene({ ambient: Number(event.target.value) })} /></label>
           <div className="studio-section"><span className="studio-label">Lights</span>{(["key", "fill", "rim"] as const).map((name) => <div className="studio-light-control" key={name}>
             <label><input type="checkbox" checked={lights[name].enabled} onChange={(event) => onChangeSceneSettings((current) => ({ ...current, lights: { ...current.lights, [name]: { ...current.lights[name], enabled: event.target.checked } } }))}/><span>{name[0].toUpperCase() + name.slice(1)}</span></label>

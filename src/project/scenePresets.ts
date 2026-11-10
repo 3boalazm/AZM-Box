@@ -32,7 +32,7 @@ export interface ShotFraming {
 export type SceneLook = Pick<
   SceneSettings,
   | "background" | "transparentBackground" | "environment" | "ambient" | "exposure"
-  | "envLight" | "lights" | "floor" | "shadows" | "material" | "materialParams"
+  | "toneMapping" | "envLight" | "lights" | "floor" | "shadows" | "material" | "materialParams"
 >;
 
 export interface ScenePreset {

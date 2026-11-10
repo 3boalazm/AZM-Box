@@ -117,8 +117,8 @@ export function sanitizeScenePreset(raw: unknown, fallbackName: string): ScenePr
 }
 
 function pickLook(scene: SceneSettings): SceneLook {
-  const { background, transparentBackground, environment, ambient, exposure, envLight, lights, floor, shadows, material, materialParams } = scene;
-  return { background, transparentBackground, environment, ambient, exposure, envLight, lights, floor, shadows, material, materialParams };
+  const { background, transparentBackground, environment, ambient, exposure, toneMapping, envLight, lights, floor, shadows, material, materialParams } = scene;
+  return { background, transparentBackground, environment, ambient, exposure, toneMapping, envLight, lights, floor, shadows, material, materialParams };
 }
 
 /** The look and shots currently in use, ready to be saved under a name. */

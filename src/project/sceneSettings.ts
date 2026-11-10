@@ -57,6 +57,19 @@ export function applyMaterialPreset(preset: MaterialPreset): Pick<SceneSettings,
   return { material: preset, materialParams: { ...source } };
 }
 
+/**
+ * How the renderer compresses high dynamic range down to screen colours.
+ *
+ * "neutral" (Khronos PBR Neutral) keeps an in-gamut colour at the value it was
+ * authored with, so #ffffff board stays white and a saturated spot colour stays
+ * saturated. "filmic" (ACES) is the film-grading curve R3F uses by default: it
+ * rolls off the highlights and desaturates as it does so, which is flattering on
+ * a lit product photo but reads as washed-out, greyish print on flat artwork —
+ * the recurring complaint this setting exists to cure. "linear" is no curve at
+ * all: maximum punch, but anything above 1.0 clips hard.
+ */
+export type ToneMapping = "neutral" | "filmic" | "linear";
+
 /** Persisted presentation state only; it never changes the dieline or production exports. */
 export interface SceneSettings {
   background: string;
@@ -71,6 +84,8 @@ export interface SceneSettings {
   materialParams: MaterialParams;
   /** Tone-mapping exposure of the whole render. */
   exposure: number;
+  /** Tone-mapping curve. See ToneMapping — "neutral" preserves printed colour. */
+  toneMapping: ToneMapping;
   /** Image-based studio reflections (0 = off). */
   envLight: number;
   /** Vertical field of view in degrees. */
@@ -106,6 +121,7 @@ export const DEFAULT_SCENE_SETTINGS: SceneSettings = {
   material: "board",
   materialParams: { ...MATERIAL_PRESETS.board },
   exposure: 1,
+  toneMapping: "neutral",
   envLight: 0.35,
   fov: 40,
   modelRotation: [0, 0, 0],
@@ -179,6 +195,10 @@ export function normalizeSceneSettings(value: unknown): SceneSettings {
     material,
     materialParams,
     exposure: finite(input.exposure, 1, 0.1, 4),
+    // Projects saved before this setting existed were rendered through ACES and
+    // came out washed out; they are deliberately migrated to "neutral" rather
+    // than pinned to "filmic", because that washout is the bug, not the look.
+    toneMapping: (["neutral", "filmic", "linear"] as const).includes(input.toneMapping as ToneMapping) ? input.toneMapping as ToneMapping : "neutral",
     // Projects saved before image-based lighting existed keep their original look.
     envLight: finite(input.envLight, 0, 0, 3),
     fov: finite(input.fov, DEFAULT_SCENE_SETTINGS.fov, 10, 100),
