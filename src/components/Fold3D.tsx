@@ -366,11 +366,13 @@ export default function Fold3D({ root, dims, layout, artwork, showDimensions, fo
   const saveScenePreset = () => {
     const name = window.prompt("Save this look and shot set as")?.trim();
     if (!name) return;
-    onChangeSceneSettings((current) => {
-      const prefs = getPreferences();
-      setPreferences({ scenePresets: { ...prefs.scenePresets, [name]: scenePresetFrom(name, current) } });
-      return current;
-    });
+    // Save straight from the sceneSettings prop. Reaching the current scene by
+    // passing a function to onChangeSceneSettings and writing preferences inside
+    // it put a side effect in a state updater: React is free to run one of those
+    // more than once, or not at the moment it is called, so the write could be
+    // repeated or land later than the code that reads it back.
+    const prefs = getPreferences();
+    setPreferences({ scenePresets: { ...prefs.scenePresets, [name]: scenePresetFrom(name, sceneSettings) } });
   };
   const reportCameraChange = useCallback((event?: { target?: unknown }) => {
     const controls = event?.target as { object?: THREE.Camera; target?: THREE.Vector3 } | null;
