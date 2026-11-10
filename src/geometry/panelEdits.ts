@@ -93,7 +93,14 @@ interface Located { node: PanelNode; mirrored: boolean }
  * Ignoring the left/right case is what made faces chained off a side tab or the
  * glue panel swing OUTSIDE the box instead of tucking in.
  */
-function childMirrored(parentMirrored: boolean, edge: HingeEdge | undefined, foldAngle?: number): boolean {
+/**
+ * Whether a child's own local frame runs back-to-front relative to the sheet,
+ * following the hinge chain. This is about the FRAME — which way the panel's
+ * local axes point once it hangs off that edge — and so about which way a fold
+ * about it turns. It is not about which face carries the print: see
+ * printSide.ts, which measures that against the dieline instead.
+ */
+export function childFrameMirrored(parentMirrored: boolean, edge: HingeEdge | undefined, foldAngle?: number): boolean {
   let flipped = parentMirrored;
   if (edge === "bottom" || edge === "left") flipped = !flipped;
   if (foldAngle !== undefined && Math.abs(Math.abs(foldAngle) - Math.PI) < 1e-6) flipped = !flipped;
@@ -104,7 +111,7 @@ function locate(root: PanelNode): Map<string, Located> {
   const found = new Map<string, Located>();
   const visit = (node: PanelNode, mirrored: boolean) => {
     found.set(node.id, { node, mirrored });
-    for (const child of node.children) visit(child, childMirrored(mirrored, child.parentEdge, child.foldAngle));
+    for (const child of node.children) visit(child, childFrameMirrored(mirrored, child.parentEdge, child.foldAngle));
   };
   visit(root, false);
   return found;
@@ -224,7 +231,7 @@ export function applyPanelEdits(root: PanelNode, edits?: PanelEdits): PanelNode 
     if (!parent || located.has(face.id) || !canHost(parent, face.edge)) return;
     const node = buildAddedFace(face, parent.node, index, parent.mirrored);
     parent.node.children.push(node);
-    located.set(node.id, { node, mirrored: childMirrored(parent.mirrored, face.edge, node.foldAngle) });
+    located.set(node.id, { node, mirrored: childFrameMirrored(parent.mirrored, face.edge, node.foldAngle) });
   });
 
   return base;

@@ -13,8 +13,7 @@
  * host's own frame rather than looked up per template, which is what lets it work
  * on hand-added faces and on flaps chained onto other flaps.
  */
-import { FACE_EDGES } from "./panelEdits";
-import { childPrintMirrored } from "./printSide";
+import { FACE_EDGES, childFrameMirrored } from "./panelEdits";
 import { dustFlap, rect, roundedTuckFlap, tuckFlap } from "./shapes";
 import type { HingeEdge, PanelNode, Point } from "./types";
 
@@ -35,7 +34,7 @@ export interface Piece {
   hostId?: string;
   /** How deep the piece stands out from its host, in mm. */
   depth: number;
-  /** True when the piece is drawn back-to-front in the flat sheet (see printSide). */
+  /** True when the piece's own frame runs back-to-front (see childFrameMirrored). */
   mirrored: boolean;
   node: PanelNode;
 }
@@ -90,7 +89,10 @@ export function pieces(root: PanelNode): Piece[] {
       node,
     });
     for (const child of node.children ?? []) {
-      visit(child, node, childPrintMirrored(mirrored, child.parentEdge));
+      // Deliberately called without the child's foldAngle: flapFoldAngle only
+      // needs the parity the hinge edges give it, and a half-turn fold is a
+      // closure state rather than part of the frame the flap is attached in.
+      visit(child, node, childFrameMirrored(mirrored, child.parentEdge));
     }
   };
   visit(root, undefined, false);
